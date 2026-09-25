@@ -1,0 +1,39 @@
+[
+  {
+    "user_name": "john.doe",
+    "first_name": "John",
+    "last_name": "Doe",
+    "email": "john.doe@example.com",
+    "title": "Solutions Architect",
+    "phone": "(816) 555-0142",
+    "department": "IT",
+    "cost_center": "IT",
+    "manager": "abel.tuter",
+    "location": {
+      "name": "Kansas City - Barry Road",
+      "street": "6304 Northwest Barry Road",
+      "city": "Kansas City",
+      "state": "MO",
+      "zip": "64154",
+      "country": "USA"
+    }
+  },
+  {
+    "user_name": "dana.whitfield",
+    "first_name": "Dana",
+    "last_name": "Whitfield",
+    "email": "dana.whitfield@example.com",
+    "title": "Payroll Specialist",
+    "department": "Finance",
+    "cost_center": "Finance",
+    "location": {
+      "name": "Miami - Kendall",
+      "street": "8900 North Kendall Drive",
+      "city": "Miami",
+      "state": "FL",
+      "zip": "33176",
+      "country": "USA"
+    },
+    "items": ["laptop", "monitor", "headset", "mobile_phone", "m365", "zoom"]
+  }
+]

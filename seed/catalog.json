@@ -1,0 +1,27 @@
+{
+  "_comment": "Standard office kit issued to every seeded user. 'category' is matched against ServiceNow model category names (first match wins). age_days sets the purchase date; warranty_years sets the warranty expiration. Users can pick a subset with an 'items' list of keys.",
+  "hardware": [
+    {"key": "laptop", "manufacturer": "Apple", "model": "MacBook Air 13\" (M3)", "model_number": "MRXN3LL/A",
+     "category": ["Computer", "Laptop", "Notebook"], "serial_prefix": "FVF", "cost": 1299, "age_days": 420, "warranty_years": 3},
+    {"key": "monitor", "manufacturer": "Dell", "model": "UltraSharp U2723QE 27\" Monitor", "model_number": "U2723QE",
+     "category": ["Computer Monitor", "Monitor", "Display"], "serial_prefix": "CN0", "cost": 579, "age_days": 700, "warranty_years": 3},
+    {"key": "dock", "manufacturer": "Dell", "model": "Thunderbolt Dock WD22TB4", "model_number": "WD22TB4",
+     "category": ["Computer Peripheral", "Peripheral", "Computer"], "serial_prefix": "DK", "cost": 299, "age_days": 700, "warranty_years": 3},
+    {"key": "desk_phone", "manufacturer": "Poly", "model": "VVX 450 Desk Phone", "model_number": "2200-48840-025",
+     "category": ["IP Phone", "Phone", "Telephony"], "serial_prefix": "64167F", "cost": 239, "age_days": 1100, "warranty_years": 1},
+    {"key": "mobile_phone", "manufacturer": "Apple", "model": "iPhone 15", "model_number": "MTLX3LL/A",
+     "category": ["Mobile Device", "Mobile Phone", "Phone"], "serial_prefix": "F2L", "cost": 799, "age_days": 380, "warranty_years": 1},
+    {"key": "printer", "manufacturer": "HP", "model": "LaserJet Pro 4001dn", "model_number": "2Z600F",
+     "category": ["Printer"], "serial_prefix": "VNB", "cost": 389, "age_days": 900, "warranty_years": 2},
+    {"key": "headset", "manufacturer": "Jabra", "model": "Evolve2 65 Headset", "model_number": "26599-999-999",
+     "category": ["Computer Peripheral", "Peripheral", "Headset"], "serial_prefix": "JB", "cost": 229, "age_days": 300, "warranty_years": 2},
+    {"key": "keyboard_mouse", "manufacturer": "Logitech", "model": "MX Keys + MX Master 3S Combo", "model_number": "920-011594",
+     "category": ["Computer Peripheral", "Peripheral"], "serial_prefix": "LGT", "cost": 199, "age_days": 300, "warranty_years": 1}
+  ],
+  "software": [
+    {"key": "m365", "publisher": "Microsoft", "product": "Microsoft 365 E3", "version": "2408", "cost": 432, "term_years": 1},
+    {"key": "acrobat", "publisher": "Adobe", "product": "Acrobat Pro", "version": "2024", "cost": 240, "term_years": 1},
+    {"key": "zoom", "publisher": "Zoom", "product": "Zoom Workplace Business", "version": "6.2", "cost": 220, "term_years": 1},
+    {"key": "slack", "publisher": "Salesforce", "product": "Slack Business+", "version": "4.40", "cost": 150, "term_years": 1}
+  ]
+}

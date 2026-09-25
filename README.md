@@ -112,3 +112,44 @@ Register the agent in Gemini Enterprise as A2A with the card at
 - Gemini Enterprise renders A2UI v0.8 with its own theme; `primaryColor`, `font` and
   `primary` buttons are sent but not applied.
 - ServiceNow developer instances hibernate; the agent reports "ServiceNow is waking up".
+
+## Demo data: seed, report and reset (`seed/sn_seed.py`)
+
+Creates realistic ServiceNow users with a standard office kit, prints an asset register PDF,
+and resets everything afterwards.
+
+**One-time setup**
+1. ServiceNow, as admin: Application Registry → New → **OAuth – Authorization code grant**,
+   redirect URL `http://localhost:8765/callback`, scope `useraccount`.
+2. Store the client in Secret Manager (or set `SN_INSTANCE_URL`, `SN_CLIENT_ID`, `SN_CLIENT_SECRET`):
+   ```bash
+   printf '%s' 'https://INSTANCE.service-now.com|CLIENT_ID|CLIENT_SECRET' | gcloud secrets create servicenow-seed-oauth --data-file=- --project PROJECT_ID
+   ```
+3. `uv run --group seed python seed/sn_seed.py login` opens the browser; sign in as **admin**.
+   The token and refresh token are cached in `~/.config/hw-seed/token.json` (0600).
+
+The instance rejects basic auth and client-credentials tokens for API calls, so the script
+uses the same browser sign-in (authorization code) as Gemini Enterprise.
+
+**Use**
+```bash
+uv run --group seed python seed/sn_seed.py set seed/users.example.json   # add/update users + issue kit
+uv run --group seed python seed/sn_seed.py report                        # seed/state/office-assets.pdf
+uv run --group seed python seed/sn_seed.py reset                         # dry run: shows the plan
+uv run --group seed python seed/sn_seed.py reset --yes [--memory]        # apply
+```
+
+- **Users file:** one object per person (`user_name`, names, email, title, phone, department,
+  cost_center, manager, location with address, optional `items` subset). Existing users are
+  updated; their original values are saved for reset.
+- **Kit (`seed/catalog.json`):** laptop, monitor, dock, desk phone, mobile phone, printer,
+  headset, keyboard/mouse, and software licences (Microsoft 365, Acrobat, Zoom, Slack). Each gets
+  a unique asset tag, a serial number or licence key, model number, manufacturer, purchase date,
+  warranty or term end and cost. Missing manufacturers and models are created.
+- **Idempotent:** re-running `set` updates users and issues only items they don't have yet.
+- **Reset** deletes every incident the seeded users are the caller on or opened (attachments
+  go with them), all seeded assets and any models, manufacturers, locations, departments and
+  cost centers the script created. It deletes users it created and restores pre-existing users
+  to their original values. `--memory` also clears their Hardware Replacement agent memories.
+  The plan is recorded in `seed/state/manifest.json`, and every seeded asset is also marked
+  `[hw-seed]` in its comments.
