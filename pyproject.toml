@@ -1,0 +1,29 @@
+[project]
+name = "hardware-replacement-agent"
+version = "0.1.0"
+description = "Hardware replacement wizard agent (ADK + A2A + A2UI) for Gemini Enterprise on Cloud Run"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "a2a-sdk[http-server]>=0.3.25,<0.4",
+    "a2ui-agent-sdk>=0.6.0",
+    "google-adk>=2.9.2",
+    "google-cloud-aiplatform[agent-engines]>=1.165",
+    "google-cloud-secret-manager>=2.30.0",
+    "google-cloud-storage>=3.14.1",
+    "google-genai>=2.25.0",
+    "httpx>=0.28.1",
+    "uvicorn[standard]>=0.53.0",
+]
+
+[dependency-groups]
+dev = [
+    "jsonschema>=4.26.0",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
