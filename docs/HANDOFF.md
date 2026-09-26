@@ -16,7 +16,8 @@ few taps. It runs on **Cloud Run**, is served to a **Gemini Enterprise** app ove
 **ServiceNow incidents as the signed-in employee**, using their own ServiceNow OAuth token.
 
 Status: working end to end in Gemini Enterprise for `john.doe`. Create, list, status, notes,
-note, ship-to change, urgency, reopen and cancel are all tested by hand.
+note, ship-to change, urgency, reopen and cancel are all tested by hand. The GE mobile app works
+in text mode (first reply asks mobile vs desktop).
 
 ---
 
@@ -30,7 +31,6 @@ note, ship-to change, urgency, reopen and cancel are all tested by hand.
 | Push | `git push` from the repo (remote `origin` is set; `gh` CLI is logged in as `OWNER`) |
 | Commit identity | Repo-local config: `John Doe <23639657+OWNER@users.noreply.github.com>`. There's no global git identity on this Mac, so keep committing from this repo, or set it again with `git config user.name` / `user.email`. |
 | Attribution | **No Claude / Anthropic co-author trailers or "Generated with" footers**, per the user's global `~/.claude/CLAUDE.md`. |
-| Uncommitted at handoff | `seed/sn_seed.py`, `seed/users.example.json`, `tests/test_sn_seed.py`: per-user reset, role grants, and Jane Doe replacing Dana. Tests pass (48). Commit and push when the user agrees. |
 
 ### Tools on this Mac
 - `gcloud` is **not on PATH**: use `~/google-cloud-sdk/bin/gcloud`, or
@@ -43,7 +43,7 @@ note, ship-to change, urgency, reopen and cancel are all tested by hand.
 ### Google Cloud (`PROJECT_ID`, number `PROJECT_NUMBER`, region `us-central1`)
 | Resource | Name / ID | Notes |
 |---|---|---|
-| Cloud Run service | `hardware-replacement-agent` | URL `https://hardware-replacement-agent-PROJECT_NUMBER.us-central1.run.app` (the card advertises this form). Latest revision `00015`. `--no-allow-unauthenticated`, min 1 instance, concurrency 4, 1 GiB. |
+| Cloud Run service | `hardware-replacement-agent` | URL `https://hardware-replacement-agent-PROJECT_NUMBER.us-central1.run.app` (the card advertises this form). Latest revision `00019`. `--no-allow-unauthenticated`, min 1 instance, concurrency 4, 1 GiB. |
 | Runtime service account | `hardware-agent@PROJECT_ID.iam.gserviceaccount.com` | `aiplatform.user`, `logging.logWriter`, `storage.objectUser` on the bucket |
 | Cloud Run invoker | `service-PROJECT_NUMBER@gcp-sa-discoveryengine.iam.gserviceaccount.com` | `run.invoker` on the service only. This is how Gemini Enterprise calls it. |
 | Agent Runtime "state engine" | `projects/PROJECT_NUMBER/locations/us-central1/reasoningEngines/ENGINE_ID` (`hardware-replacement-state`) | **Runs no code.** Hosts managed Sessions + Memory Bank (topics: USER_PREFERENCES, delivery_and_contact, hardware_history). |
@@ -125,6 +125,10 @@ Key design rules:
   whatever ServiceNow refused → tell the user exactly what was and wasn't done.
 - **Ticket card views**: status header always; then `last_note` / `notes` / `details` / `change`.
 - Wizard steps are skipped when already known. One sentence can go straight to review.
+- **Display mode** (`inbound.display_step`, `cards.to_text`): the GE mobile app can't render A2UI
+  ("Response contains unsupported content") and its requests are identical to the web app's, so
+  the first reply asks "Desktop or Mobile App?". Mobile gets markdown with numbered options (a number
+  acts as a click); desktop gets cards. GE renders markdown, so use blank lines, not single newlines.
 
 ---
 
@@ -198,7 +202,7 @@ uv run --group seed pytest                      # everything: 48 tests
 
 The prioritized backlog is in `docs/BACKLOG.md`.
 
-1. **Commit and push** the pending seed changes (Jane Doe, per-user reset, roles), then run:
+1. Seed changes are committed. Run:
    `reset --user dana.whitfield --yes` → `set seed/users.example.json` → `report`.
    Set Jane's password in ServiceNow.
 2. **Cleanup** (needs explicit user naming): the `servicenow-integration` and `servicenow-oauth`
