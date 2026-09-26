@@ -114,3 +114,67 @@ async def rewrite_parts(parts: list[Part], upload) -> tuple[list[Part], list[dic
         out.append(Part(root=TextPart(text="(empty message)")))
     return out, photos
 
+
+
+# --- Display mode: A2UI cards (web app) or plain text (mobile app) -----------------
+#
+# The Gemini Enterprise mobile app requests A2UI but shows "Response contains
+# unsupported content" for it, and its requests are identical to the web app's
+# (measured 2026-09-26). So the first turn of each conversation asks, and the
+# answer is kept in session state.
+
+UI_MODE_KEY = "ui_mode"            # "cards" | "text" | "asking"
+UI_PENDING_KEY = "ui_pending"      # the first message, replayed once they answer
+UI_OPTIONS_KEY = "ui_options"      # numbered options of the last text card
+ASK_MARKER = "[Ask display mode]"
+SHOW_CURRENT = "[UI action] show_current_step {}"
+
+_YES = {"1", "mobile", "mobile app", "app", "phone", "1 = mobile app", "1 mobile app", "yes", "y"}
+_NO = {"2", "desktop", "browser", "desktop/browser", "web", "computer", "laptop", "2 = desktop/browser", "2 desktop", "no", "n"}
+_TO_TEXT = {"text", "text mode", "switch to text", "use text", "numbers"}
+_TO_CARDS = {"buttons", "cards", "button mode", "switch to buttons", "use buttons", "show buttons"}
+_NUMBER = re.compile(r"^\s*(?:option\s*|#)?(\d{1,2})\s*[.)]?\s*$", re.IGNORECASE)
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"[\s.!?]+$", "", " ".join(text.lower().split()))
+
+
+def display_step(state: dict, text: str) -> tuple[str, dict]:
+    """Decides the display mode for this turn and what the model should see.
+
+    Returns (text for the model, state delta). `state` is the session state.
+    """
+    mode = state.get(UI_MODE_KEY)
+    said = _norm(text)
+    is_click = text.startswith("[UI action]")
+
+    if mode in (None, "", "asking"):
+        if is_click:  # only the web app can click
+            return text, {UI_MODE_KEY: "cards"}
+        if mode == "asking" and (said in _YES or said in _NO):
+            chosen = "text" if said in _YES else "cards"
+            pending = state.get(UI_PENDING_KEY) or ""
+            return pending or "Hello", {UI_MODE_KEY: chosen, UI_PENDING_KEY: ""}
+        if mode == "asking":
+            # Not an answer: keep the first message, but a photo or a longer
+            # message sent now also counts as what they want.
+            pending = state.get(UI_PENDING_KEY) or ""
+            return ASK_MARKER, {UI_PENDING_KEY: f"{pending}\n{text}".strip()}
+        return ASK_MARKER, {UI_MODE_KEY: "asking", UI_PENDING_KEY: text}
+
+    if said in _TO_TEXT and mode != "text":
+        return SHOW_CURRENT, {UI_MODE_KEY: "text"}
+    if said in _TO_CARDS and mode != "cards":
+        return SHOW_CURRENT, {UI_MODE_KEY: "cards"}
+    if mode == "text":
+        options = state.get(UI_OPTIONS_KEY) or []
+        match = _NUMBER.match(text)
+        choice = None
+        if match and 1 <= int(match.group(1)) <= len(options):
+            choice = options[int(match.group(1)) - 1]
+        else:
+            choice = next((o for o in options if _norm(o["label"]) == said), None)
+        if choice:
+            return f"[UI action] {choice['action']} {json.dumps(choice['context'])}", {}
+    return text, {}

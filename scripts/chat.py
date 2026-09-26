@@ -88,7 +88,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default="http://localhost:8080")
     ap.add_argument("--token", help="identity token for Cloud Run IAM (x-serverless-authorization)")
-    ap.add_argument("--user-token", help="end-user ya29 access token (Authorization), as GE forwards it")
+    ap.add_argument("--user-token", help="end-user ServiceNow OAuth token (Authorization), as GE forwards it")
     args = ap.parse_args()
 
     headers = {}

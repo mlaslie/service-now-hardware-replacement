@@ -12,6 +12,7 @@ Rules the renderer enforces, all handled here:
 """
 
 import itertools
+import re
 import uuid
 
 BASIC_CATALOG_ID = "https://a2ui.org/specification/v0_8/basic_catalog.json"
@@ -115,7 +116,7 @@ def device_picker(employee: dict, assets: list[dict]) -> list[dict]:
     c = Card()
     first = (employee.get("name") or "there").split(" ")[0]
     kids = c.header(1, f"Hi {first}, which device needs replacing?",
-                    "Tap your device below. Not listed? Send a photo of its asset tag or serial label and I'll look it up.")
+                    "Choose your device. Not listed? Send a photo of its asset tag or serial label and I'll look it up.")
     for asset in assets:
         kids.append(c.button(_device_label(asset), "select_device", {"asset_tag": asset["asset_tag"]}))
     kids.append(c.button("A different device", "different_device"))
@@ -351,3 +352,61 @@ def intro_of(messages: list[dict]) -> str:
             if comp.get("id") == "intro":
                 return comp["component"]["Text"]["text"]["literalString"]
     return ""
+
+
+# --- Text rendering (Gemini Enterprise mobile app: no A2UI) ------------------------
+
+
+def to_text(messages: list[dict]) -> tuple[str, list[dict]]:
+    """Renders a card as markdown text with numbered options, for clients that
+    can't show A2UI (the Gemini Enterprise mobile app). Returns the text and the
+    options in number order, each {"label", "action", "context"}, so a reply of
+    "2" can act like a click.
+
+    GE renders replies as markdown, where a single newline is ignored: so every
+    line is its own paragraph, 'Label: value' rows are a bulleted list and the
+    buttons a numbered list.
+    """
+    begin = next(m["beginRendering"] for m in messages if "beginRendering" in m)
+    by_id = {c["id"]: c["component"] for m in messages for c in (m.get("surfaceUpdate") or {}).get("components", [])}
+    blocks: list[tuple[str, str]] = []  # (kind, markdown): kind is para, field or option
+    options: list[dict] = []
+
+    def text_of(cid: str) -> str:
+        comp = by_id.get(cid, {})
+        return comp["Text"]["text"].get("literalString", "").strip() if "Text" in comp else ""
+
+    def walk(cid: str) -> None:
+        comp = by_id.get(cid, {})
+        kind, props = next(iter(comp.items()), (None, {}))
+        if kind == "Card":
+            walk(props["child"])
+        elif kind in ("Column", "Row"):
+            kids = props["children"]["explicitList"]
+            if kind == "Row" and kids and all("Text" in by_id.get(k, {}) for k in kids):
+                label, *rest = [text_of(k) for k in kids]
+                blocks.append(("field", f"- **{label}** {' '.join(rest)}".rstrip()))
+            else:
+                for child in kids:
+                    walk(child)
+        elif kind == "Text":
+            value = text_of(cid)
+            if value:
+                heading = (props.get("usageHint") or "").startswith("h")
+                blocks.append(("para", f"**{value}**" if heading else value))
+        elif kind == "Button":
+            action = props.get("action") or {}
+            context = {c["key"]: c["value"].get("literalString", "") for c in action.get("context", [])}
+            options.append({"label": text_of(props["child"]), "action": action.get("name", ""), "context": context})
+            blocks.append(("option", f"{len(options)}. {options[-1]['label']}"))
+
+    walk(begin["root"])
+    if options:
+        blocks.append(("para", "_Reply with a number, or just type your answer._"))
+    out = ""
+    for i, (kind, md) in enumerate(blocks):
+        if i:
+            # Items of one list stay together; everything else is a new paragraph.
+            out += "\n" if kind in ("field", "option") and blocks[i - 1][0] == kind else "\n\n"
+        out += md
+    return out, options

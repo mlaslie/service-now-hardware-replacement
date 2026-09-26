@@ -12,6 +12,7 @@ Request path, per chat turn:
      artifact service for photos
 """
 
+import json
 import logging
 import os
 
@@ -19,7 +20,7 @@ from a2a.server.apps import A2AStarletteApplication
 from a2a.server.agent_execution import RequestContext
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
-from a2a.types import AgentCapabilities, AgentCard, AgentSkill
+from a2a.types import AgentCapabilities, AgentCard, AgentSkill, Part, TextPart
 from a2ui.a2a.extension import get_a2ui_agent_extension
 from a2ui.schema.constants import VERSION_0_8
 from google.adk.a2a.converters.request_converter import convert_a2a_request_to_agent_run_request
@@ -64,6 +65,27 @@ def adk_user_id(context_id: str) -> str:
     return f"A2A_USER_{context_id}"
 
 
+# Header values safe to log; every other header is logged by name only.
+_SAFE_HEADERS = ("user-agent", "x-a2a-extensions", "accept", "content-type", "accept-language",
+                 "sec-ch-ua-mobile", "sec-ch-ua-platform", "x-client-data")
+
+
+def client_signals(context: RequestContext, headers: dict) -> dict:
+    """What the caller says about itself: used to tell the Gemini Enterprise
+    mobile app (no A2UI) from the web app. Never includes token values."""
+    lower = {k.lower(): v for k, v in headers.items()}
+    message = context.message
+    return {
+        "header_names": sorted(lower),
+        "headers": {k: lower[k] for k in _SAFE_HEADERS if k in lower},
+        "requested_extensions": sorted(context.requested_extensions or []),
+        "params_metadata": context.metadata or {},
+        "message_metadata": (message.metadata if message else None) or {},
+        "message_extensions": (message.extensions if message else None) or [],
+        "accepted_output_modes": getattr(context.configuration, "accepted_output_modes", None),
+    }
+
+
 async def preprocess(context: RequestContext) -> RequestContext:
     """Runs before the ADK runner, so nothing large reaches the session store."""
     state = context.call_context.state if context.call_context else {}
@@ -71,6 +93,7 @@ async def preprocess(context: RequestContext) -> RequestContext:
     parts = list(context.message.parts) if context.message else []
     logger.info("turn start context=%s parts=%s", context.context_id,
                 [getattr(p.root, "kind", "?") for p in parts])
+    logger.info("client signals %s", json.dumps(client_signals(context, headers), default=str))
     token = bearer(headers)
     # Request-scoped: tools call ServiceNow as this person. Never persisted.
     servicenow.user_token.set(token)
@@ -86,6 +109,7 @@ async def preprocess(context: RequestContext) -> RequestContext:
                 session_id=context_id, data=data, mime_type=mime_type)
 
         parts, photos = await inbound.rewrite_parts(parts, upload)
+        parts = await apply_display_mode(context_id, parts, state)
         context.message.parts = parts
         state[inbound.PHOTOS_KEY] = photos
     logger.info("turn context=%s user=%s(%s) photos=%d", context.context_id, user.email or "-",
@@ -93,12 +117,35 @@ async def preprocess(context: RequestContext) -> RequestContext:
     return context
 
 
+async def apply_display_mode(context_id: str, parts: list, state: dict) -> list:
+    """Asks web or mobile on a conversation's first turn, and turns a numbered
+    reply in text mode into the click it stands for (see inbound.display_step)."""
+    texts = [p.root.text for p in parts if getattr(p.root, "kind", "") == "text"]
+    if not texts:
+        return parts
+    try:
+        session = await session_service.get_session(
+            app_name=config.APP_NAME, user_id=adk_user_id(context_id), session_id=context_id)
+    except Exception as exc:  # first turn: the session doesn't exist yet
+        logger.info("no session yet for %s (%s)", context_id, type(exc).__name__)
+        session = None
+    text, delta = inbound.display_step(dict(session.state) if session else {}, "\n".join(texts))
+    state[UI_DELTA_KEY] = delta
+    if delta:
+        logger.info("display mode context=%s %s", context_id,
+                    {k: v for k, v in delta.items() if k != inbound.UI_PENDING_KEY})
+    return [Part(root=TextPart(text=text))] + [p for p in parts if getattr(p.root, "kind", "") != "text"]
+
+
+UI_DELTA_KEY = "hw_ui_delta"
+
+
 def to_run_request(context: RequestContext, part_converter):
     """ADK's converter, plus identity and staged photos as a session state delta.
 
     `user_id` stays ADK's default (`A2A_USER_<contextId>`) on purpose: it is the
     session partition key, and keying it to an identity that can fail to resolve
-    on one turn (token expiry, a tokeninfo blip) would strand the conversation.
+    on one turn (token expiry, a ServiceNow blip) would strand the conversation.
     Identity rides in state instead, refreshed every turn.
     """
     request = convert_a2a_request_to_agent_run_request(context, part_converter)
@@ -113,6 +160,7 @@ def to_run_request(context: RequestContext, part_converter):
         delta[f"photo:{photo['photo_id']}"] = photo
     if photos:
         delta["last_photo_ids"] = [p["photo_id"] for p in photos]
+    delta.update(state.get(UI_DELTA_KEY) or {})
     request.state_delta = delta or None
     return request
 

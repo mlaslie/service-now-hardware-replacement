@@ -8,7 +8,7 @@ from google.adk.agents.callback_context import CallbackContext
 from google.adk.models import Gemini, LlmRequest, LlmResponse
 from google.genai import types
 
-from app import cards, config
+from app import cards, config, inbound
 from app.tools import ALL_TOOLS, CARD_KEY
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,8 @@ Messages you will see:
     submit_ticket                -> submit_ticket
     edit_request                 -> ask in one sentence what they would like to change
     start_over                   -> start_request
+    show_current_step            -> show_review if a request is in progress, otherwise say in one
+                                    sentence that the display changed and ask what they need
     list_tickets                 -> list_my_tickets
     list_all_tickets             -> list_my_tickets(include_closed=true)
     view_ticket + number         -> get_ticket(number, show="status")
@@ -149,10 +151,42 @@ def render_staged_card(callback_context: CallbackContext, llm_response: LlmRespo
     callback_context.state[CARD_KEY] = None
     intro = " ".join(p.text for p in content.parts if p.text and not p.thought).strip()
     messages = cards.prepend_text(card, intro[:300])
+    if callback_context.state.get(inbound.UI_MODE_KEY) == "text":
+        # Mobile app: no A2UI. Same card as text; a numbered reply acts as a click.
+        text, options = cards.to_text(messages)
+        callback_context.state[inbound.UI_OPTIONS_KEY] = options
+        return LlmResponse(content=types.Content(role="model", parts=[types.Part(text=text)]),
+                           custom_metadata={"a2a:response": "true"})
     return LlmResponse(
         content=types.Content(role="model", parts=[_wrap(m) for m in messages]),
         custom_metadata={"a2a:response": "true"},
     )
+
+
+# Blank lines: GE renders replies as markdown, which ignores single newlines.
+ASK_TEXT = "Are you on the Gemini Enterprise Desktop or Mobile App?\n\n1 = Mobile App\n\n2 = Desktop/Browser"
+
+
+def _last_user_text(llm_request: LlmRequest) -> str:
+    for content in reversed(llm_request.contents or []):
+        if content.role == "user" and any(p.text for p in content.parts or []):
+            return " ".join(p.text for p in content.parts if p.text)
+        if content.role == "user":  # a function response: the user spoke earlier
+            return ""
+    return ""
+
+
+def ask_display_mode(callback_context: CallbackContext, llm_request: LlmRequest) -> LlmResponse | None:
+    """First turn of a conversation: ask web or mobile app before anything else
+    (see inbound.display_step). No model call is needed for the question."""
+    if inbound.ASK_MARKER not in _last_user_text(llm_request):
+        return None
+    return LlmResponse(content=types.Content(role="model", parts=[types.Part(text=ASK_TEXT)]),
+                       custom_metadata={"a2a:response": "true"})
+
+
+def before_model(callback_context: CallbackContext, llm_request: LlmRequest) -> LlmResponse | None:
+    return ask_display_mode(callback_context, llm_request) or compact_card_history(callback_context, llm_request)
 
 
 root_agent = LlmAgent(
@@ -163,7 +197,7 @@ root_agent = LlmAgent(
     description="Guides employees through replacing broken work hardware and files the service desk request.",
     instruction=INSTRUCTION,
     tools=ALL_TOOLS,
-    before_model_callback=compact_card_history,
+    before_model_callback=before_model,
     after_model_callback=render_staged_card,
     generate_content_config=types.GenerateContentConfig(temperature=0.2),
 )
