@@ -3,7 +3,7 @@
     uv run --group seed python seed/sn_seed.py login
     uv run --group seed python seed/sn_seed.py set seed/users.json
     uv run --group seed python seed/sn_seed.py report [--out seed/state/office-assets.pdf]
-    uv run --group seed python seed/sn_seed.py reset [--yes] [--memory]
+    uv run --group seed python seed/sn_seed.py reset [--user USER_NAME ...] [--yes] [--memory]
 
 Credentials
 -----------
@@ -326,6 +326,14 @@ class Seeder:
         self.m.users[spec["user_name"]] = {"sys_id": sys_id, "email": spec.get("email", ""), "created": created,
                                            "location": fields.get("location", "")}
         self.m.save()
+        for role_name in spec.get("roles", []):
+            role = self.sn.one("sys_user_role", f"name={_q(role_name)}")
+            if not role:
+                log(f"  ! role {role_name} not found; skipped")
+            elif not self.sn.one("sys_user_has_role", f"user={sys_id}^role={role['sys_id']}"):
+                grant = self.sn.create("sys_user_has_role", {"user": sys_id, "role": role["sys_id"]})
+                self.m.track("sys_user_has_role", grant["sys_id"])
+                log(f"  + role {role_name}")
         return self.m.users[spec["user_name"]]
 
     def _asset_tag(self) -> str:
@@ -520,40 +528,62 @@ def _table(rows, widths, green, band, colors, inch):
 
 
 # Delete order: records that reference others first.
-DELETE_ORDER = ["alm_license", "alm_hardware", "cmdb_software_product_model", "cmdb_hardware_product_model",
+DELETE_ORDER = ["sys_user_has_role", "alm_license", "alm_hardware", "cmdb_software_product_model", "cmdb_hardware_product_model",
                 "core_company", "sys_user", "cmn_location", "cmn_department", "cmn_cost_center"]
 
 
-def plan_reset(sn: SN, m: Manifest) -> dict:
-    user_ids = [u["sys_id"] for u in m.users.values()]
-    plan: dict = {"incidents": [], "delete": {}, "restore_users": dict(m.user_snapshots)}
+def plan_reset(sn: SN, m: Manifest, only: set[str] | None = None) -> dict:
+    """What reset will do. With `only`, just those users: their tickets, their seeded
+    assets, and the user (deleted if the script created them, otherwise restored).
+    Shared records (models, manufacturers, locations...) are kept in that case."""
+    names = [n for n in m.users if not only or n in only]
+    users = {n: m.users[n] for n in names}
+    user_ids = [u["sys_id"] for u in users.values()]
+    plan: dict = {"users": names, "incidents": [], "delete": {},
+                  "restore_users": {sid: f for sid, f in m.user_snapshots.items() if sid in user_ids}}
     if user_ids:
         ids = ",".join(user_ids)
         plan["incidents"] = sn.query("incident", f"caller_idIN{ids}^ORopened_byIN{ids}", "sys_id,number,short_description")
-    marked = {}
-    for table in ("alm_hardware", "alm_license"):
+    for table in ("alm_license", "alm_hardware"):
         if table in m.created or sn.table_exists(table):
-            marked[table] = [r["sys_id"] for r in sn.query(table, f"commentsLIKE{SEED_MARK}")]
-    for table in DELETE_ORDER:
-        ids = list(dict.fromkeys(m.created.get(table, []) + marked.get(table, [])))
-        if ids:
-            plan["delete"][table] = ids
+            q = f"commentsLIKE{SEED_MARK}" + (f"^assigned_toIN{','.join(user_ids)}" if only else "")
+            marked = [r["sys_id"] for r in sn.query(table, q)] if (user_ids or not only) else []
+            ids = marked if only else list(dict.fromkeys(m.created.get(table, []) + marked))
+            if ids:
+                plan["delete"][table] = ids
+    if only and user_ids and m.created.get("sys_user_has_role"):
+        grants = [r["sys_id"] for r in sn.query("sys_user_has_role", f"userIN{','.join(user_ids)}")
+                  if r["sys_id"] in m.created["sys_user_has_role"]]
+        if grants:
+            plan["delete"]["sys_user_has_role"] = grants
+    if only:
+        created_users = [u["sys_id"] for u in users.values() if u.get("created")]
+        if created_users:
+            plan["delete"]["sys_user"] = created_users
+    else:
+        for table in DELETE_ORDER:
+            if table not in ("alm_license", "alm_hardware") and m.created.get(table):
+                plan["delete"][table] = list(m.created[table])
+    plan["delete"] = {t: plan["delete"][t] for t in DELETE_ORDER if t in plan["delete"]}
     return plan
 
 
-def cmd_reset(sn: SN, yes: bool, memory: bool) -> None:
+def cmd_reset(sn: SN, yes: bool, memory: bool, only: set[str] | None = None) -> None:
     m = Manifest.load()
     if not m.users and not m.created:
         sys.exit("Nothing to reset (no manifest).")
-    plan = plan_reset(sn, m)
-    log(f"Reset plan for {m.instance}:")
+    if only and not only <= set(m.users):
+        sys.exit(f"Not seeded by this tool: {', '.join(sorted(only - set(m.users)))}")
+    plan = plan_reset(sn, m, only)
+    emails = [m.users[n]["email"] for n in plan["users"] if m.users[n].get("email")]
+    log(f"Reset plan for {m.instance}" + (f" (users: {', '.join(plan['users'])})" if only else " (everything)") + ":")
     log(f"  incidents to delete ({len(plan['incidents'])}): "
         + ", ".join(i["number"] for i in plan["incidents"][:20]) + (" ..." if len(plan["incidents"]) > 20 else ""))
     for table, ids in plan["delete"].items():
         log(f"  {table}: delete {len(ids)}")
     log(f"  users to restore to their original values: {len(plan['restore_users'])}")
     if memory:
-        log(f"  agent memories to delete for: {', '.join(u['email'] for u in m.users.values() if u.get('email'))}")
+        log(f"  agent memories to delete for: {', '.join(emails)}")
     if not yes:
         log("\nDry run. Re-run with --yes to apply.")
         return
@@ -566,16 +596,27 @@ def cmd_reset(sn: SN, yes: bool, memory: bool) -> None:
             sn.update("sys_user", sys_id, fields)
         except RuntimeError as exc:
             log(f"  ! could not restore user {sys_id}: {exc}")
-    failed = []
+    failed, deleted = [], set()
     for table, ids in plan["delete"].items():
         for sys_id in ids:
             try:
                 sn.delete(table, sys_id)
+                deleted.add(sys_id)
             except RuntimeError as exc:  # still referenced by something outside the seed
                 failed.append((table, sys_id, str(exc)))
         log(f"deleted {table}: {len(ids)}")
     if memory:
-        _delete_memories([u["email"] for u in m.users.values() if u.get("email")])
+        _delete_memories(emails)
+
+    if only:
+        for name in plan["users"]:
+            sid = m.users.pop(name)["sys_id"]
+            m.items.pop(name, None)
+            m.user_snapshots.pop(sid, None)
+        m.created = {t: [i for i in ids if i not in deleted] for t, ids in m.created.items()}
+        m.save()
+        log(f"Reset complete for {', '.join(plan['users'])}." + (f" {len(failed)} records could not be deleted." if failed else ""))
+        return
     if failed:
         log(f"! {len(failed)} records could not be deleted (kept in the manifest):")
         for f in failed[:10]:
@@ -619,6 +660,8 @@ def main() -> None:
     p = sub.add_parser("reset", help="undo everything `set` did and delete the users' tickets")
     p.add_argument("--yes", action="store_true", help="apply (default is a dry run)")
     p.add_argument("--memory", action="store_true", help="also delete the users' agent memories")
+    p.add_argument("--user", action="append", dest="users", metavar="USER_NAME",
+                   help="reset only this seeded user (repeatable); default is everything")
     args = ap.parse_args()
 
     client = load_client()
@@ -630,7 +673,7 @@ def main() -> None:
     elif args.cmd == "report":
         cmd_report(sn, args.out)
     elif args.cmd == "reset":
-        cmd_reset(sn, args.yes, args.memory)
+        cmd_reset(sn, args.yes, args.memory, set(args.users) if args.users else None)
 
 
 if __name__ == "__main__":

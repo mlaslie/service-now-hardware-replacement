@@ -20,6 +20,8 @@ class FakeSN:
         self.client = sn_seed.OAuthClient("https://fake.service-now.com", "id", "secret")
         self.tables: dict[str, dict[str, dict]] = {
             "sys_db_object": {"t1": {"sys_id": "t1", "name": "alm_license"}},
+            "sys_user_role": {f"r{i}": {"sys_id": f"r{i}", "name": n} for i, n in enumerate(
+                ["itil", "sn_incident_write", "asset"])},
             "cmdb_model_category": {f"c{i}": {"sys_id": f"c{i}", "name": n} for i, n in enumerate(
                 ["Computer", "Computer Monitor", "Computer Peripheral", "IP Phone", "Mobile Device", "Printer"])},
             "sys_user": {"u0": {"sys_id": "u0", "user_name": "abel.tuter", "first_name": "Abel"},
@@ -103,8 +105,8 @@ def test_set_is_idempotent_and_issues_full_kit(env):
     assert john["sys_id"] == "u1" and john["first_name"] == "John"  # existing user updated, not duplicated
     assert sum(r["assigned_to"] == "u1" for r in hw.values()) == 8
     assert sum(r["assigned_to"] == "u1" for r in lic.values()) == 4
-    dana = next(r for r in sn.tables["sys_user"].values() if r["user_name"] == "dana.whitfield")
-    assert sum(r["assigned_to"] == dana["sys_id"] for r in list(hw.values()) + list(lic.values())) == 6
+    jane = next(r for r in sn.tables["sys_user"].values() if r["user_name"] == "jane.doe")
+    assert sum(r["assigned_to"] == jane["sys_id"] for r in list(hw.values()) + list(lic.values())) == 12
     assert all(r["comments"].startswith(sn_seed.SEED_MARK) for r in hw.values())
     assert len({r["asset_tag"] for r in list(hw.values()) + list(lic.values())}) == len(hw) + len(lic)
 
@@ -124,10 +126,10 @@ def test_report_builds_a_pdf(env):
 def test_reset_undoes_everything(env):
     sn, users, _ = env
     sn_seed.cmd_set(sn, users, sn_seed.HERE / "catalog.json")
-    dana = next(r for r in sn.tables["sys_user"].values() if r["user_name"] == "dana.whitfield")
+    jane = next(r for r in sn.tables["sys_user"].values() if r["user_name"] == "jane.doe")
     sn.tables["incident"] = {
         "i1": {"sys_id": "i1", "number": "INC1", "caller_id": "u1"},
-        "i2": {"sys_id": "i2", "number": "INC2", "opened_by": dana["sys_id"]},
+        "i2": {"sys_id": "i2", "number": "INC2", "opened_by": jane["sys_id"]},
         "i3": {"sys_id": "i3", "number": "INC3", "caller_id": "u0"},  # someone else's: kept
     }
     sn_seed.cmd_reset(sn, yes=False, memory=False)  # dry run changes nothing
@@ -140,3 +142,39 @@ def test_reset_undoes_everything(env):
     assert sn.tables["sys_user"]["u1"]["first_name"] == "Old" and sn.tables["sys_user"]["u1"]["email"] == "old@x"
     assert not sn.tables.get("cmn_location") and not sn.tables.get("core_company")
     assert not sn_seed.MANIFEST.exists()
+
+
+def test_reset_one_user_leaves_the_rest(env):
+    sn, users, _ = env
+    sn_seed.cmd_set(sn, users, sn_seed.HERE / "catalog.json")
+    jane = next(r for r in sn.tables["sys_user"].values() if r["user_name"] == "jane.doe")
+    sn.tables["incident"] = {"i1": {"sys_id": "i1", "number": "INC1", "caller_id": jane["sys_id"]},
+                             "i2": {"sys_id": "i2", "number": "INC2", "caller_id": "u1"}}
+    john_items = sum(r["assigned_to"] == "u1" for r in sn.tables["alm_hardware"].values())
+
+    sn_seed.cmd_reset(sn, yes=True, memory=False, only={"jane.doe"})
+    assert list(sn.tables["incident"]) == ["i2"]  # only Jane's ticket
+    assert jane["sys_id"] not in sn.tables["sys_user"]
+    assert not any(r["assigned_to"] == jane["sys_id"] for r in sn.tables["alm_hardware"].values())
+    assert sum(r["assigned_to"] == "u1" for r in sn.tables["alm_hardware"].values()) == john_items
+    assert sn.tables["cmn_location"]  # shared records kept
+    m = sn_seed.Manifest.load()
+    assert set(m.users) == {"john.doe"}
+
+
+def test_manager_is_resolved_after_being_seeded(env):
+    sn, users, _ = env
+    sn_seed.cmd_set(sn, users, sn_seed.HERE / "catalog.json")
+    jane = next(r for r in sn.tables["sys_user"].values() if r["user_name"] == "jane.doe")
+    assert jane["manager"] == "u1"  # john.doe, seeded earlier in the same file
+
+
+def test_roles_granted_and_removed(env):
+    sn, users, _ = env
+    sn_seed.cmd_set(sn, users, sn_seed.HERE / "catalog.json")
+    jane = next(r for r in sn.tables["sys_user"].values() if r["user_name"] == "jane.doe")
+    assert {g["role"] for g in sn.tables["sys_user_has_role"].values() if g["user"] == jane["sys_id"]} == {"r0", "r1", "r2"}
+    sn_seed.cmd_set(sn, users, sn_seed.HERE / "catalog.json")  # not granted twice
+    assert len(sn.tables["sys_user_has_role"]) == 6
+    sn_seed.cmd_reset(sn, yes=True, memory=False)
+    assert not sn.tables["sys_user_has_role"]

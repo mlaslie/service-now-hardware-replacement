@@ -16,24 +16,35 @@
       "state": "MO",
       "zip": "64154",
       "country": "USA"
-    }
+    },
+    "roles": [
+      "itil",
+      "sn_incident_write",
+      "asset"
+    ]
   },
   {
-    "user_name": "dana.whitfield",
-    "first_name": "Dana",
-    "last_name": "Whitfield",
-    "email": "dana.whitfield@example.com",
-    "title": "Payroll Specialist",
-    "department": "Finance",
-    "cost_center": "Finance",
+    "user_name": "jane.doe",
+    "first_name": "Jane",
+    "last_name": "Doe",
+    "email": "jane.doe@example.com",
+    "title": "Account Executive",
+    "phone": "(816) 555-0187",
+    "department": "Sales",
+    "cost_center": "Sales",
+    "manager": "john.doe",
     "location": {
-      "name": "Miami - Kendall",
-      "street": "8900 North Kendall Drive",
-      "city": "Miami",
-      "state": "FL",
-      "zip": "33176",
+      "name": "Kansas City - Barry Road",
+      "street": "6304 Northwest Barry Road",
+      "city": "Kansas City",
+      "state": "MO",
+      "zip": "64154",
       "country": "USA"
     },
-    "items": ["laptop", "monitor", "headset", "mobile_phone", "m365", "zoom"]
+    "roles": [
+      "itil",
+      "sn_incident_write",
+      "asset"
+    ]
   }
 ]
