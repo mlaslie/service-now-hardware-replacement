@@ -4,47 +4,39 @@
     "first_name": "John",
     "last_name": "Doe",
     "email": "john.doe@example.com",
-    "title": "Solutions Architect",
+    "title": "IT Systems Analyst",
     "phone": "(816) 555-0142",
     "department": "IT",
     "cost_center": "IT",
     "manager": "abel.tuter",
     "location": {
-      "name": "Kansas City - Barry Road",
-      "street": "6304 Northwest Barry Road",
+      "name": "Riverside Medical Center",
+      "street": "1200 Harbor Health Way",
       "city": "Kansas City",
       "state": "MO",
-      "zip": "64154",
+      "zip": "64108",
       "country": "USA"
     },
-    "roles": [
-      "itil",
-      "sn_incident_write",
-      "asset"
-    ]
+    "groups": ["Service Desk"],
+    "roles": ["itil", "sn_incident_write", "asset"]
   },
   {
     "user_name": "jane.doe",
     "first_name": "Jane",
     "last_name": "Doe",
     "email": "jane.doe@example.com",
-    "title": "Account Executive",
+    "title": "MRI Technologist",
     "phone": "(816) 555-0187",
-    "department": "Sales",
-    "cost_center": "Sales",
-    "manager": "john.doe",
+    "department": "Radiology",
+    "cost_center": "Radiology",
     "location": {
-      "name": "Kansas City - Barry Road",
-      "street": "6304 Northwest Barry Road",
+      "name": "Riverside Medical Center",
+      "street": "1200 Harbor Health Way",
       "city": "Kansas City",
       "state": "MO",
-      "zip": "64154",
+      "zip": "64108",
       "country": "USA"
     },
-    "roles": [
-      "itil",
-      "sn_incident_write",
-      "asset"
-    ]
+    "roles": ["itil", "sn_incident_write", "asset"]
   }
 ]

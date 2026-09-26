@@ -37,13 +37,25 @@ PHOTO_POLICY = {
     "other": ("optional", "whatever shows the problem"),
     "wont_power_on": (None, ""),
     "performance": (None, ""),
+    # Shared and clinical equipment.
+    "not_working": (None, ""),
+    "error_alarm": ("recommended", "the screen or panel showing the error or alarm"),
+    "damaged": ("recommended", "the damaged part, close enough to see it clearly"),
+    # Never slow down someone who should be taking unsafe equipment out of service.
+    "safety_concern": (None, ""),
 }
 
 # Matches the priority ServiceNow derives from servicenow.URGENCY_TO_IMPACT_URGENCY.
 _PRIORITY = {"low": "4 - Low", "normal": "3 - Moderate", "high": "2 - High", "critical": "1 - Critical"}
 REFRESH_YEARS = {"laptop": 3, "desktop": 4, "monitor": 5, "phone": 2, "tablet": 3}
 # A device that cannot be used at all blocks the employee's work.
-_BLOCKING = {"wont_power_on", "liquid_damage", "cracked_screen"}
+_BLOCKING = {"wont_power_on", "liquid_damage", "cracked_screen", "not_working"}
+# Equipment is repaired on site; response targets by priority.
+_EQUIPMENT_SLA = {"1": "Response within 1 hour", "2": "Same day", "3": "Next business day", "4": "Within 3 business days"}
+# Words that don't help find equipment by description.
+_STOP_WORDS = {"the", "a", "an", "in", "on", "at", "of", "to", "is", "it", "its", "our", "my", "and", "or", "with",
+               "has", "have", "not", "broken", "down", "working", "please", "there", "this", "that", "room", "bay",
+               "floor", "unit", "department", "dept", "one", "machine", "device", "equipment"}
 _REPLACE = {"cracked_screen", "liquid_damage", "physical_damage", "wont_power_on"}
 
 
@@ -235,10 +247,67 @@ def _asset_summary(assets: list[dict]) -> list[dict]:
     return [{"asset_tag": a["asset_tag"], "type": a.get("device_type"), "model": a.get("model")} for a in assets]
 
 
-def _device_from_asset(asset: dict) -> dict:
-    keys = ("sys_id", "asset_tag", "serial_number", "manufacturer", "model",
-            "device_type", "purchase_date", "warranty_end", "assigned_to", "ci")
-    return {k: asset.get(k, "") for k in keys} | {"in_inventory": True}
+def _relation(asset: dict, employee: dict) -> tuple[str, str, str]:
+    """How the reporter relates to the device: (relation, text for the user, note
+    for the ticket). Anyone may report anything; this only says what is known."""
+    me, name = employee.get("sys_id"), employee.get("name", "the reporter")
+    if asset.get("assigned_to"):
+        if asset["assigned_to"] == me:
+            return "yours", "You", "Assigned to the reporter"
+        owner = asset.get("assigned_to_name") or "another person"
+        return ("unconfirmed", f"{owner}, not you. You can still report it; the ticket will say so.",
+                f"Ownership could not be confirmed: assigned to {owner}, reported by {name}")
+    if asset.get("department_id") and asset["department_id"] == employee.get("department_id"):
+        return ("department", f"{asset.get('department')} (your department)",
+                f"Department equipment ({asset.get('department')}); the reporter is in this department")
+    if asset.get("support_group_id") and asset["support_group_id"] in (employee.get("group_ids") or []):
+        return ("group", f"{asset.get('department') or 'Shared equipment'}, supported by your group "
+                f"({asset.get('support_group')})",
+                f"Supported by {asset.get('support_group')}; the reporter is a member of that group")
+    owner = asset.get("department") or "no department on record"
+    return ("unconfirmed", f"{owner}. Not registered to you or your department; you can still report it "
+            "and the ticket will say so.",
+            f"Ownership could not be confirmed: registered to {owner}, reported by {name}, who is not "
+            "in that department or its support group")
+
+
+def _device_from_asset(asset: dict, employee: dict, confirmed: bool = False) -> dict:
+    keys = ("sys_id", "asset_tag", "serial_number", "manufacturer", "model", "device_type", "purchase_date",
+            "warranty_end", "assigned_to", "assigned_to_name", "ci", "kind", "category", "department",
+            "department_id", "location", "location_id", "support_group", "support_group_id", "cost_center",
+            "managed_by")
+    relation, text, note = _relation(asset, employee)
+    return {k: asset.get(k, "") for k in keys} | {
+        "in_inventory": True, "relation": relation, "relation_text": text, "ownership_note": note,
+        # A label photo that matched exactly already proves which device it is.
+        "confirmed": confirmed}
+
+
+def _set_device(draft: dict, device: dict, asset: dict | None = None) -> dict:
+    """Puts a device on the draft, clearing what belonged to the previous one."""
+    for key in ("suggested_device", "duplicates_checked", "match_note"):
+        draft.pop(key, None)
+    draft["device"] = device
+    if asset:
+        draft["eligibility"] = eligibility(asset)
+    else:
+        draft.pop("eligibility", None)
+    return draft
+
+
+def _words_of(asset: dict) -> set[str]:
+    text = " ".join(str(asset.get(k) or "") for k in ("model", "manufacturer", "category", "device_type",
+                                                      "location", "department", "asset_tag"))
+    return set(_words(text).split())
+
+
+def _score(asset: dict, wanted: list[str]) -> int:
+    have = _words_of(asset)
+    return sum(1 for w in wanted if w in have or (len(w) >= 4 and any(w in h for h in have)))
+
+
+def _query_words(description: str) -> list[str]:
+    return [w for w in _words(description).split() if w not in _STOP_WORDS and (len(w) > 1 or w.isdigit())]
 
 
 def _refresh(draft: dict, employee: dict) -> dict:
@@ -249,11 +318,17 @@ def _refresh(draft: dict, employee: dict) -> dict:
     evidence = draft.get("evidence") or {}
 
     urgency = issue.get("urgency", "normal")
-    if category in _BLOCKING and urgency in ("low", "normal"):
+    if category == "safety_concern":
+        urgency = "critical"
+    elif category in _BLOCKING and urgency in ("low", "normal"):
         urgency = "high"
     draft["priority"] = _PRIORITY.get(urgency, _PRIORITY["normal"])
+    device = draft.get("device") or {}
 
-    if elig.get("refresh_eligible"):
+    if cards.is_equipment(device):
+        # Who does it is its own line ("Handled by").
+        rec = "Remove from service, then on-site repair" if category == "safety_concern" else "On-site repair"
+    elif elig.get("refresh_eligible"):
         rec = "Replace with current standard model (refresh eligible, no cost to department)"
     elif category in _REPLACE or evidence.get("supports_replacement"):
         rec = ("Warranty replacement" if elig.get("in_warranty")
@@ -265,16 +340,16 @@ def _refresh(draft: dict, employee: dict) -> dict:
     else:
         rec = "Repair assessment; replace if repair is uneconomical"
     draft["recommendation"] = rec
-    draft["sla"] = ("Next business day" if draft["priority"].startswith(("1", "2"))
-                    else "2-3 business days")
+    if cards.is_equipment(device):
+        draft["sla"] = _EQUIPMENT_SLA.get(draft["priority"][0], "Next business day")
+    else:
+        draft["sla"] = ("Next business day" if draft["priority"].startswith(("1", "2"))
+                        else "2-3 business days")
 
     warnings = list(draft.get("photo_warnings") or [])
     if draft.get("match_note"):
         warnings.append(draft["match_note"])
-    device = draft.get("device") or {}
-    assigned = device.get("assigned_to")
-    if assigned and assigned != employee.get("sys_id"):
-        warnings.append("Inventory shows this device assigned to someone else; the desk will confirm ownership.")
+    # Unconfirmed ownership is shown once, as "Belongs to" (and noted on the ticket).
     if device and not device.get("in_inventory"):
         warnings.append("Device not found in inventory; details were read from your photo.")
     suggested = draft.get("suggested_device") or {}
@@ -329,6 +404,19 @@ async def _next_step(ctx: ToolContext, draft: dict, employee: dict) -> dict:
         assets = await servicenow.my_assets(employee["sys_id"])
         _show(ctx, cards.device_picker(employee, assets))
         return {"status": "ok", "step": "choose_device", "assets": _asset_summary(assets)}
+    if not device.get("confirmed"):
+        _show(ctx, cards.confirm_device(device, draft.get("match_note", "")))
+        return {"status": "ok", "step": "confirm_device", "device": _device_name(device),
+                "belongs_to": device.get("relation_text")}
+    if cards.is_equipment(device) and device.get("ci") and not draft.get("duplicates_checked"):
+        draft["duplicates_checked"] = True
+        _save(ctx, draft)
+        existing = await servicenow.open_incidents_for_ci(device["ci"])
+        if existing:
+            _show(ctx, cards.existing_tickets(device, existing))
+            return {"status": "ok", "step": "already_reported",
+                    "open_tickets": [{k: t[k] for k in ("number", "state", "short_description", "caller")}
+                                     for t in existing]}
     if not issue:
         _show(ctx, cards.issue_picker(device, (draft.get("evidence") or {}).get("category", "")))
         return {"status": "ok", "step": "describe_issue", "device": device.get("model")}
@@ -374,16 +462,86 @@ async def select_device(asset_tag: str, tool_context: ToolContext) -> dict:
     asset = await servicenow.find_asset(asset_tag=asset_tag) or await servicenow.find_asset(serial_number=asset_tag)
     how = ""
     if not asset:
-        asset, how = match_own_asset(await servicenow.my_assets(employee["sys_id"]), identifier=asset_tag)
+        asset, how = match_own_asset(await _nearby_assets(employee), identifier=asset_tag)
     if not asset:
         _show(tool_context, cards.label_photo_request())
         return {"status": "not_found", "message": f"No asset {asset_tag} in inventory; asked the user for a label photo."}
-    draft = _intake_draft(tool_context)
-    draft.pop("suggested_device", None)
+    draft = _set_device(_intake_draft(tool_context), _device_from_asset(asset, employee), asset)
     draft["match_note"] = _match_note(asset, how) if how else ""
-    draft["device"] = _device_from_asset(asset)
-    draft["eligibility"] = eligibility(asset)
     return await _next_step(tool_context, draft, employee)
+
+
+async def _nearby_assets(employee: dict) -> list[dict]:
+    """The user's own devices and their department's equipment: where a fuzzy
+    match or a description is most likely to point."""
+    own = await servicenow.my_assets(employee["sys_id"])
+    dept = await servicenow.department_assets(employee.get("department_id", ""))
+    seen = {a["sys_id"] for a in own}
+    return own + [a for a in dept if a["sys_id"] not in seen]
+
+
+@servicenow_errors
+async def find_device(description: str, tool_context: ToolContext) -> dict:
+    """Finds a device or piece of equipment from how the user describes it ("the MRI",
+    "the portable x-ray", "bed 312", "the infusion pump in ED bay 7"), then asks the user to
+    confirm it. Searches their own devices and their department's equipment first, then
+    the whole inventory.
+
+    Args:
+        description: What the user called it, including any place they mentioned.
+    """
+    employee = await _employee(tool_context)
+    if not employee:
+        return _no_identity(tool_context)
+    wanted = _query_words(description)
+    if not wanted:
+        _show(tool_context, cards.label_photo_request())
+        return {"status": "not_found", "message": "Nothing to search for; asked for the asset tag or a photo."}
+    candidates = await _nearby_assets(employee)
+    best = _best_matches(candidates, wanted)
+    if not best:
+        # Beyond their own area, e.g. a pump found in another department.
+        for word in sorted(wanted, key=len, reverse=True)[:2]:
+            candidates += await servicenow.search_assets(word)
+        best = _best_matches(candidates, wanted)
+    if not best:
+        _show(tool_context, cards.label_photo_request())
+        return {"status": "not_found", "message": f"Nothing matched {description!r}; asked for the asset tag or a photo."}
+    if len(best) > 1:
+        _show(tool_context, cards.device_choices("Which one do you mean?", best[:6]))
+        return {"status": "ok", "step": "choose_device", "matches": _asset_summary(best[:6])}
+    draft = _set_device(_intake_draft(tool_context), _device_from_asset(best[0], employee), best[0])
+    return await _next_step(tool_context, draft, employee)
+
+
+def _best_matches(assets: list[dict], wanted: list[str]) -> list[dict]:
+    unique = list({a["sys_id"]: a for a in assets}.values())
+    scored = [(a, _score(a, wanted)) for a in unique]
+    top = max((sc for _, sc in scored), default=0)
+    return [a for a, sc in scored if top and sc == top]
+
+
+@servicenow_errors
+async def confirm_device(correct: bool, tool_context: ToolContext) -> dict:
+    """The user checked the device details shown (model, asset tag, serial).
+
+    Args:
+        correct: True if they said it's the right device, False if not.
+    """
+    employee = await _employee(tool_context)
+    if not employee:
+        return _no_identity(tool_context)
+    draft = _draft(tool_context)
+    if not draft.get("device"):
+        return await _next_step(tool_context, draft, employee)
+    if correct:
+        draft["device"]["confirmed"] = True
+        return await _next_step(tool_context, draft, employee)
+    draft = _set_device(draft, {})
+    draft.pop("device")
+    result = await _next_step(tool_context, draft, employee)
+    return result | {"message": "Not that device. Showed their devices; they can also give the asset tag, "
+                                "serial number or a photo of the sticker."}
 
 
 async def request_label_photo(tool_context: ToolContext) -> dict:
@@ -401,8 +559,10 @@ async def set_issue(category: str, description: str, urgency: str, tool_context:
     """Records what is wrong, then shows the photo step if useful, otherwise the review.
 
     Args:
-        category: One of cracked_screen, wont_power_on, battery, keyboard_trackpad,
-            liquid_damage, physical_damage, performance, other.
+        category: For the user's own devices: cracked_screen, wont_power_on, battery,
+            keyboard_trackpad, liquid_damage, physical_damage, performance, other. For shared or
+            medical equipment: not_working, error_alarm, damaged, safety_concern, other. Use
+            safety_concern whenever a patient or staff member is, or could be, put at risk.
         description: The problem in the user's own words, lightly cleaned up. Use the
             category label if they only clicked a button.
         urgency: low, normal, high or critical. Infer it from what they said: "I have a
@@ -465,26 +625,28 @@ async def analyze_photos(tool_context: ToolContext) -> dict:
         how = ""
         if not asset and not current and f["image_kind"] != "unrelated":
             if owned is None:
-                owned = await servicenow.my_assets(employee["sys_id"])
+                owned = await _nearby_assets(employee)
             asset, how = match_own_asset(owned, f["serial_number"] or f["asset_tag"], f["model"], f["manufacturer"])
         if asset:
             if current and current.get("asset_tag") != asset["asset_tag"]:
                 # Offered on the review card as "Use <device> instead" (see _refresh).
-                draft["suggested_device"] = _device_from_asset(asset)
+                draft["suggested_device"] = _device_from_asset(asset, employee)
             elif not current:
-                draft["device"] = _device_from_asset(asset)
-                draft["eligibility"] = eligibility(asset)
+                _set_device(draft, _device_from_asset(asset, employee, confirmed=not how), asset)
                 draft["match_note"] = _match_note(asset, how) if how else ""
             photo_serial = f["serial_number"].upper().replace(" ", "")
             if not how and photo_serial and asset.get("serial_number") and photo_serial != asset["serial_number"].upper():
                 photo_warnings.append(
                     f"Serial on the label ({photo_serial}) differs from inventory ({asset['serial_number']}).")
         elif has_id and not current:
-            draft["device"] = {
+            _set_device(draft, {
                 "asset_tag": normalize_tag(f["asset_tag"]), "serial_number": f["serial_number"],
                 "manufacturer": f["manufacturer"], "model": f["model"], "part_number": f["part_number"],
-                "device_type": f["device_type"], "in_inventory": False,
-            }
+                "device_type": f["device_type"], "in_inventory": False, "confirmed": True,
+                "kind": "clinical" if f["device_type"] == "medical equipment" else "personal",
+                "relation": "unconfirmed", "relation_text": "Not found in inventory",
+                "ownership_note": "Not found in inventory; details were read from the reporter's photo",
+            })
         elif not current and f["image_kind"] in ("label", "device"):
             note = "I couldn't read an asset tag or serial number. Try a closer, sharper photo of the label."
 
@@ -509,7 +671,7 @@ async def analyze_photos(tool_context: ToolContext) -> dict:
 
     if not draft.get("device"):
         _save(tool_context, draft)
-        assets = owned if owned is not None else await servicenow.my_assets(employee["sys_id"])
+        assets = await servicenow.my_assets(employee["sys_id"])
         _show(tool_context, cards.photo_findings(findings[-1][1], assets, note))
         return {"status": "ok", "step": "device_unknown", "findings": summary, "assets": _asset_summary(assets)}
     result = await _next_step(tool_context, draft, employee)
@@ -594,6 +756,7 @@ async def submit_ticket(tool_context: ToolContext) -> dict:
         ticket = existing
     else:
         impact, urgency = servicenow.URGENCY_TO_IMPACT_URGENCY[_urgency_key(draft)]
+        where = device.get("location") or device.get("department")
         fields = {
             "caller_id": employee["sys_id"],
             "category": servicenow.HARDWARE,
@@ -601,13 +764,22 @@ async def submit_ticket(tool_context: ToolContext) -> dict:
             "impact": impact,
             "urgency": urgency,
             "short_description": (f"{ISSUE_LABELS.get(issue['category'])}: {device.get('model') or 'device'} "
-                                  f"{device.get('asset_tag', '')}").strip(),
+                                  f"{device.get('asset_tag', '')}"
+                                  + (f" - {where}" if cards.is_equipment(device) and where else "")).strip(),
             "description": _ticket_description(draft, employee),
             "correlation_id": conversation_id,
             "correlation_display": "Gemini Enterprise - Hardware Replacement agent",
         }
         if device.get("ci"):
             fields["cmdb_ci"] = device["ci"]
+        if device.get("support_group_id"):
+            fields["assignment_group"] = device["support_group_id"]  # e.g. Clinical Engineering
+        if device.get("location_id"):
+            fields["location"] = device["location_id"]
+        # Whoever the device belongs to hears about it too (and sees it in their ticket list).
+        watchers = [w for w in (device.get("assigned_to"), device.get("managed_by")) if w and w != employee["sys_id"]]
+        if watchers:
+            fields["watch_list"] = ",".join(dict.fromkeys(watchers))
         ticket = await servicenow.create_incident(fields)
         if not ticket["description"].strip():
             # ServiceNow drops fields the caller isn't allowed to set (e.g. without
@@ -615,6 +787,14 @@ async def submit_ticket(tool_context: ToolContext) -> dict:
             await servicenow.update_incident(employee["sys_id"], ticket["number"], {
                 "comments": "Request details (added by the Hardware Replacement agent):\n\n" + fields["description"]})
             logger.info("description not accepted by ServiceNow; details added as a note")
+        desk_notes = []
+        if device.get("relation") == "unconfirmed":
+            desk_notes.append(f"{device.get('ownership_note')}. Filed anyway, as the agent allows anyone to report equipment.")
+        if fields.get("assignment_group") and ticket.get("assignment_group_id") != fields["assignment_group"]:
+            desk_notes.append(f"Please route to {device.get('support_group')}, the equipment's support group; "
+                              "it could not be set from the reporter's account.")
+        if desk_notes:
+            await servicenow.update_incident(employee["sys_id"], ticket["number"], {"comments": "\n".join(desk_notes)})
         await _attach_photos(tool_context, ticket["sys_id"], draft)
         requested = draft["priority"].split(" ")[0]
         if ticket["priority"] and ticket["priority"] != requested:
@@ -654,15 +834,35 @@ def _ticket_description(draft: dict, employee: dict) -> str:
         f"Problem: {ISSUE_LABELS.get(issue['category'])}",
         f"Details: {issue.get('description', '')}",
         "",
-        f"Device: {' '.join(filter(None, [device.get('manufacturer'), device.get('model')]))}",
+        f"Device: {cards.maker_model(device)}",
         f"Asset tag: {device.get('asset_tag') or 'unknown'}   Serial: {device.get('serial_number') or 'unknown'}",
-        f"Coverage: {elig.get('summary', 'unknown')}",
-        "",
-        f"Recommended fulfilment: {draft.get('recommendation')}",
-        f"Target: {draft.get('sla')}",
-        f"Ship to: {draft.get('delivery_location') or employee.get('location_address') or employee.get('location')}",
-        f"Bill to: {employee.get('cost_center') or 'n/a'} ({employee.get('department') or 'n/a'})",
     ]
+    if cards.is_equipment(device):
+        lines += [
+            f"Location: {device.get('location') or 'unknown'}",
+            f"Department: {device.get('department') or 'unknown'}",
+            f"Ownership: {device.get('ownership_note')}",
+            "",
+            f"Service: {draft.get('recommendation')}",
+            f"Support group: {device.get('support_group') or 'not set on the asset'}",
+            f"Target: {draft.get('sla')}",
+            f"Bill to: {device.get('cost_center') or device.get('department') or 'n/a'}",
+        ]
+    else:
+        lines += [f"Coverage: {elig.get('summary', 'unknown')}"]
+        if device.get("relation") != "yours":
+            lines.append(f"Ownership: {device.get('ownership_note')}")
+        lines += [
+            "",
+            f"Recommended fulfilment: {draft.get('recommendation')}",
+            f"Target: {draft.get('sla')}",
+            f"Ship to: {draft.get('delivery_location') or employee.get('location_address') or employee.get('location')}",
+            f"Bill to: {employee.get('cost_center') or 'n/a'} ({employee.get('department') or 'n/a'})",
+        ]
+    lines += ["", f"Reported by: {employee.get('name', '')} ({employee.get('email', '')}), "
+                  f"{employee.get('title') or 'no title'}, {employee.get('department') or 'no department'}"]
+    if issue["category"] == "safety_concern":
+        lines += ["", f"SAFETY CONCERN. The reporter was told: {cards.SAFETY_TEXT}"]
     if evidence:
         lines += ["", f"Photo evidence: {evidence.get('summary')}"]
     if draft.get("warnings"):
@@ -733,6 +933,8 @@ async def list_my_tickets(tool_context: ToolContext, include_closed: bool = Fals
     if not employee:
         return _no_identity(tool_context)
     tickets = await servicenow.my_incidents(employee["sys_id"], active_only=not include_closed)
+    for t in tickets:
+        t["following"] = bool(t.get("caller_id")) and t["caller_id"] != employee["sys_id"]
     _show(tool_context, cards.ticket_list(tickets, include_closed))
     return {"status": "ok", "count": len(tickets),
             "tickets": [{k: t[k] for k in ("number", "short_description", "state", "priority")} for t in tickets]}
@@ -933,11 +1135,59 @@ async def cancel_ticket(number: str, reason: str, tool_context: ToolContext) -> 
         return ticket
     if ticket["state_code"] not in servicenow.ACTIVE_STATES:
         return {"status": "error", "message": f"{number} is already {ticket['state'].lower()}."}
+    if ticket.get("caller_id") and ticket["caller_id"] != employee["sys_id"]:
+        return {"status": "not_permitted", "message": (
+            f"Only the person who reported {number} ({ticket.get('caller') or 'someone else'}) can cancel it. "
+            "The user follows it. Offer to add a note, e.g. that it is working again, or to stop following.")}
     reason = f"Canceled by the requester. Reason: {reason.strip()}"
     return await _apply_changes(tool_context, number, [_state_change("canceled", reason)], reason)
 
 
-ALL_TOOLS = [start_request, select_device, request_label_photo, set_issue, analyze_photos,
-             skip_photo, update_request, show_review, submit_ticket,
+@servicenow_errors
+async def follow_ticket(number: str, tool_context: ToolContext) -> dict:
+    """Adds the user's report to an open ticket someone already filed for the same
+    equipment, and makes them a follower so it appears in their tickets and they get updates.
+    Use when they chose "Add my note" on the "already reported" card.
+
+    Args:
+        number: The open ticket's number.
+    """
+    employee = await _employee(tool_context)
+    if not employee:
+        return _no_identity(tool_context)
+    draft = _draft(tool_context)
+    device = draft.get("device") or {}
+    ticket = next((t for t in await servicenow.open_incidents_for_ci(device.get("ci", ""), limit=10)
+                   if t["number"] == number.strip().upper()), None)
+    if not ticket:
+        return {"status": "not_found", "message": f"{number} is no longer open for this device. Offer to report it as new."}
+    issue = draft.get("issue") or {}
+    note = " ".join(filter(None, [
+        f"Also reported by {employee.get('name')} ({employee.get('department') or 'no department'}).",
+        f"{ISSUE_LABELS.get(issue.get('category'), '')}: {issue.get('description', '')}" if issue else ""]))
+    saved = await servicenow.follow_incident(employee["sys_id"], ticket["sys_id"], note)
+    following = employee["sys_id"] in saved.get("watch_list", [])
+    draft["submitted_number"], draft["followed"] = saved["number"], True
+    _save(tool_context, draft)
+    message = ("Your note was added and you're now following this ticket, so it shows in your tickets."
+               if following else "Your note was added. ServiceNow didn't let your account follow the ticket, "
+               "so ask about it by its number.")
+    result = await _show_ticket(tool_context, saved, message, "change")
+    return result | {"status": "ok", "following": following, "note_added": note}
+
+
+@servicenow_errors
+async def report_separately(tool_context: ToolContext) -> dict:
+    """The user wants their own ticket even though the equipment already has an open one."""
+    employee = await _employee(tool_context)
+    if not employee:
+        return _no_identity(tool_context)
+    draft = _draft(tool_context)
+    draft["duplicates_checked"] = True
+    return await _next_step(tool_context, draft, employee)
+
+
+ALL_TOOLS = [start_request, select_device, find_device, confirm_device, request_label_photo, set_issue,
+             analyze_photos, skip_photo, update_request, show_review, submit_ticket, follow_ticket, report_separately,
              list_my_tickets, get_ticket, update_ticket, add_ticket_note, change_ticket_shipping,
              request_urgent_handling, cancel_ticket]

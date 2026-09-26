@@ -4,7 +4,8 @@ Created 2026-09-26. The agent works end to end; this is the next round of work.
 Priority: **P0** = bug or blocks the next manual test, **P1** = next up, **P2** = later.
 Size: S (< half a day), M (about a day), L (several days).
 
-Suggested order: A0 fixes → A1 path tests → B demo → E0 mobile probe → C setup → D ideas.
+Suggested order now: F-next (hospital equipment follow-ups) → A2 evals → C setup → D ideas.
+Done: A0, A1, A3, B, E (mobile text mode), F (hospital equipment).
 
 ---
 
@@ -75,9 +76,11 @@ trajectory, and assert that no tool is called that the user didn't ask for (e.g.
 
 ---
 
-## B. Demo script with the two test users (P1, S)
+## B. Demo script with the two test users (P1, S): **done, rewritten for the hospital in `demo/DEMO.html`**
 
-Write `demo/DEMO-2-USERS.md` (keep `demo/DEMO.md` for the one-user flow). Prerequisites:
+The plan below was the first version; the hospital demo (section F) replaced it.
+
+Write `demo/DEMO-2-USERS.md` (keep `demo/DEMO.html` for the one-user flow). Prerequisites:
 seed is reset and set up, Jane's password is set, each user has authorized the agent once
 (in separate browser profiles, never while an admin is signed in).
 
@@ -139,7 +142,8 @@ SETUP.md outline: prerequisites → `cp .env.example .env` → `bootstrap.sh` �
 **Proactive and status**
 - **D8.** "What's happening with my replacement?" digest: all open tickets in one card with the latest note
   (single ServiceNow query).
-- **D9.** Warn on duplicates: an open hardware ticket for the same asset already exists → offer to add a note to it instead.
+- **D9.** Warn on duplicates: **done for shared and clinical equipment** (F). Still open for personal devices
+  (e.g. a second ticket for the same laptop by the same person).
 
 **Quality and operations**
 - **D10.** Structured logging of each path (intake source: typed/photo-label/photo-damage/picker)
@@ -147,6 +151,55 @@ SETUP.md outline: prerequisites → `cp .env.example .env` → `bootstrap.sh` �
 - **D11.** Admin/system-account guard: if the resolved ServiceNow user has the `admin` role, warn
   (problem 12 in the handoff).
 - **D12.** Cost: skip the vision call when the photo is a duplicate (same hash) within a request.
+
+---
+
+## F. Hospital equipment (built 2026-09-26, revision 00023)
+
+Goal: anyone in the hospital reports broken shared or medical equipment as easily as their own
+laptop, the report reaches the team that fixes it, and everyone affected gets updates.
+
+**How hospitals usually keep equipment in ServiceNow, and what the agent assumes**
+- Equipment is an asset (`alm_hardware` by default; `ASSET_TABLES` adds e.g. a clinical device table),
+  **owned by a department** (`department`), at a **room-level location** (`location`), **supported by a
+  group** (`support_group`): Clinical Engineering / biomed for patient-care devices, Imaging Engineering
+  (or the vendor) for imaging, the IT Service Desk for IT equipment in clinical areas.
+- Asset tags are Clinical Engineering control numbers (CE-#####) on a sticker with a barcode.
+- Medical equipment is recognized by model category (`CLINICAL_CATEGORIES`); other unassigned
+  department equipment is "shared"; anything assigned to a person is "personal".
+
+**Built**
+| Item | Where |
+|---|---|
+| Device list shows model, tag and serial; every chosen, typed, described or fuzzy-matched device gets a yes/no "Is this the right device?"; an exact photo match skips it | `cards.device_picker`, `cards.confirm_device`, `tools.confirm_device` |
+| Find equipment by description ("the MRI in room 104", "infusion pump in ED bay 7"): own devices and department equipment first, then the whole inventory | `tools.find_device`, `servicenow.department_assets`, `servicenow.search_assets` |
+| Ownership, checked but never enforced: yours / your department / your group supports it / could not be confirmed (noted on the ticket) | `tools._relation` |
+| Equipment problems (not working, error or alarm, damaged, safety concern, other); safety concern is always critical, no photo step, and tells the reporter to take it out of service | `cards.EQUIPMENT_ISSUES`, `tools._refresh` |
+| Repair, not replacement: on-site repair by the support group, the equipment's location, bill to its cost center | `cards.review`, `tools._ticket_description` |
+| Ticket: assignment group = support group, location, CI, watch list = the device's owner/manager; comments if ownership is unconfirmed or routing was refused | `tools.submit_ticket` |
+| Already reported: open ticket on the same CI → "Add my note" makes the reporter a follower (watch list); followers see, get and update the ticket, only the reporter can cancel | `tools.follow_ticket`, `servicenow.follow_incident`, `_mine` |
+| CI lookup through the CI's `asset` reference when ServiceNow keeps the asset's `ci` empty | `servicenow._link_cis` |
+| Seed: departments, rooms, support groups, 8 pieces of equipment with CIs, Jane in Radiology, John in IT and Service Desk; `clear-tickets` between demo runs; report has an equipment page | `seed/equipment.json`, `seed/sn_seed.py` |
+| Demo: 6 scenes with both users, phone and desktop, tag stickers `demo/tag-mri.jpg`, `demo/tag-pump.jpg` | `demo/DEMO.html` |
+| Tests: 13 equipment path tests (plus the confirm step across the intake tests), 3 seed tests | `tests/test_paths.py`, `tests/test_sn_seed.py` |
+
+**F-next (not built yet)**
+- **F1 (P1, S). Live test pass** of `demo/DEMO.html` on phone and desktop; tune the instruction where the
+  model routes wrong (e.g. uses select_device for a description), and add those phrases to the A2 evals.
+- **F2 (P1, M). Production access.** Staff without `itil`/`asset` usually can't read other departments'
+  assets, group memberships or other people's incidents, and may not be allowed to set assignment group,
+  location or watch list. Needs a scripted REST API (search equipment, open tickets on a CI, follow) or a
+  Service Catalog "Report equipment problem" item that sets these server-side (see D4/D5). The agent already
+  degrades gracefully: unreadable data is skipped, refused fields are noted on the ticket.
+- **F3 (P2, S). Take out of service.** For a safety concern, offer to set the asset's status to
+  "In maintenance" so the next person sees it's tagged out (needs asset write access).
+- **F4 (P2, S). Vendor-serviced equipment.** Imaging often has a vendor service contract; show the vendor and
+  contract number on the review card and ticket (`ast_contract` / `service_contract` on the asset).
+- **F5 (P2, S). Safety event reporting.** Link to the hospital's safety event system (or open the event)
+  when a patient or staff member was harmed; the agent only reminds today.
+- **F6 (P2, S). Configurable CI class.** Hospitals with a clinical device plugin keep CIs in their own class;
+  confirm `_link_cis` and `ASSET_TABLES` cover it on a real instance.
+- **F7 (P2, S). Unfollow.** "Stop following INC…" removes the user from the watch list.
 
 ---
 

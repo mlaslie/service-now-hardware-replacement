@@ -1,19 +1,27 @@
 # ServiceNow Hardware Replacement agent
 
-An ADK agent on Cloud Run, served to a Gemini Enterprise app over A2A, that walks an
-employee through a hardware replacement request in a few taps and files it in ServiceNow
-**as that employee**. Cards are A2UI v0.8.
+An ADK agent on Cloud Run, served to a Gemini Enterprise app over A2A, that lets hospital staff
+report broken hardware in a sentence or a photo and follow up on it, filed in ServiceNow **as that
+person**. It covers personal devices (replaced and shipped) and shared or clinical equipment such as
+MRI and CT scanners, infusion pumps, patient monitors and beds (repaired on site by the team that
+supports them). Cards are A2UI v0.8 in the web app; the mobile app gets the same steps as numbered text.
 
 ## What it does
 
 | Step | Card | Time savers |
 |---|---|---|
-| 1 Device | The user's ServiceNow assets as buttons | Identity, devices, ship-to and bill-to come from ServiceNow. A photo of the asset label also works. |
-| 2 Problem | Eight issue buttons, or free text | One sentence ("my laptop won't turn on, demo tomorrow") fills steps 1 and 2 and sets urgency. |
+| 1 Device | The user's devices (model, tag, serial), then "Is this the right device?" | Identity, devices, ship-to and bill-to come from ServiceNow. Equipment can be named in words ("the MRI in room 104"), by tag or serial, or by a photo of its sticker; an exact photo match skips the check. |
+| 2 Problem | Issue buttons (laptop-style for personal devices; not working / error / damaged / safety concern for equipment), or free text | One sentence fills steps 1 and 2 and sets urgency. A safety concern is always critical and tells the reporter to take the equipment out of service. |
 | 3 Photo | Only when it helps: required for cracks and physical damage, skippable otherwise | Gemini reads device type, make, model, part number, serial and asset tag, and documents damage as evidence. |
 | 4 Review | Everything pre-filled, then Submit | Warranty or refresh eligibility, recommended fulfilment, ship-to, bill-to, and warnings (owner, serial or make mismatch). |
 
-After submitting, users can list their hardware tickets, check status, read notes, add notes,
+For equipment, ownership is checked, never enforced: the reporter's own device, their department's
+equipment, equipment their group supports, or "could not be confirmed" (noted on the ticket). The
+ticket goes to the equipment's support group (Clinical Engineering, Imaging Engineering, Service
+Desk) with its location and CI. If the equipment already has an open ticket, the second reporter adds
+a note to it and **follows** it (watch list) instead of filing a duplicate.
+
+After submitting, users can list the hardware tickets they reported or follow, check status, read notes, add notes,
 change the ship-to address, request urgent handling, reopen, and cancel with a reason, all
 limited to their own hardware tickets.
 
@@ -35,7 +43,7 @@ Gemini Enterprise ──A2A (message/stream)──▶ Cloud Run: this agent
  app/cards.py    deterministic A2UI v0.8 cards (the model never writes UI JSON)
  app/vision.py   structured photo analysis
  app/servicenow.py  Table API client, always as the signed-in user; ticket queries are
-                    always scoped to caller_id = user and category = hardware
+                    always scoped to (caller_id = user OR watch_list has user) and category = hardware
  app/memory.py   Memory Bank, keyed by the user's email (offers, never auto-applies)
 
 Agent Runtime (code-less engine): managed Sessions (keyed by A2A contextId) + Memory Bank
@@ -106,6 +114,9 @@ Register the agent in Gemini Enterprise as A2A with the card at
 | `AGENT_ENGINE_ID` / `AGENT_ENGINE_LOCATION` | code-less engine for Sessions + Memory Bank |
 | `ARTIFACT_BUCKET` | `<project>-hardware-ticket-photos` |
 | `SERVICE_URL` | the public Cloud Run URL (advertised in the agent card) |
+| `ASSET_TABLES` | `alm_hardware` (add e.g. a clinical device table if equipment lives elsewhere) |
+| `CLINICAL_CATEGORIES` | model categories treated as medical equipment (Imaging Equipment, Patient Care Equipment, ...) |
+| `ASSET_TAG_HINT` | how asset tags look, for the photo model |
 
 ## Known limits
 
@@ -115,8 +126,10 @@ Register the agent in Gemini Enterprise as A2A with the card at
 
 ## Demo data: seed, report and reset (`seed/sn_seed.py`)
 
-Creates realistic ServiceNow users with a standard office kit, prints an asset register PDF,
-and resets everything afterwards.
+Creates realistic ServiceNow users with a standard office kit, a fictional hospital's shared and
+clinical equipment (`seed/equipment.json`: departments, room-level locations, support groups, model
+categories, eight pieces of equipment with CIs), prints an asset register PDF, and resets everything
+afterwards. The demo script is `demo/DEMO.html`.
 
 **One-time setup**
 1. ServiceNow, as admin: Application Registry → New → **OAuth – Authorization code grant**,
@@ -133,15 +146,19 @@ uses the same browser sign-in (authorization code) as Gemini Enterprise.
 
 **Use**
 ```bash
-uv run --group seed python seed/sn_seed.py set seed/users.example.json   # add/update users + issue kit
+uv run --group seed python seed/sn_seed.py set seed/users.example.json   # users, kit, groups, equipment
 uv run --group seed python seed/sn_seed.py report                        # seed/state/office-assets.pdf
+uv run --group seed python seed/sn_seed.py clear-tickets [--yes]         # demo tickets only, between runs
 uv run --group seed python seed/sn_seed.py reset                         # dry run: shows the plan
 uv run --group seed python seed/sn_seed.py reset --yes [--memory]        # apply
 ```
 
 - **Users file:** one object per person (`user_name`, names, email, title, phone, department,
-  cost_center, manager, location with address, optional `items` subset). Existing users are
-  updated; their original values are saved for reset.
+  cost_center, manager, location with address, `groups`, `roles`, optional `items` subset).
+  Existing users are updated; their original values are saved for reset.
+- **Equipment (`seed/equipment.json`):** owned by departments, not people, with a location and a
+  support group. ServiceNow allows one model category per CI class, so new equipment categories
+  have none and the script creates each item's CI (`cmdb_ci_hardware`, linked back to the asset).
 - **Kit (`seed/catalog.json`):** laptop, monitor, dock, desk phone, mobile phone, printer,
   headset, keyboard/mouse, and software licences (Microsoft 365, Acrobat, Zoom, Slack). Each gets
   a unique asset tag, a serial number or licence key, model number, manufacturer, purchase date,

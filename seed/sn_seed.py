@@ -1,9 +1,10 @@
 """Seed and reset ServiceNow demo data for the Hardware Replacement agent.
 
     uv run --group seed python seed/sn_seed.py login
-    uv run --group seed python seed/sn_seed.py set seed/users.json
+    uv run --group seed python seed/sn_seed.py set seed/users.json [--equipment seed/equipment.json]
     uv run --group seed python seed/sn_seed.py report [--out seed/state/office-assets.pdf]
     uv run --group seed python seed/sn_seed.py reset [--user USER_NAME ...] [--yes] [--memory]
+    uv run --group seed python seed/sn_seed.py clear-tickets [--yes]   # between demo runs
 
 Credentials
 -----------
@@ -16,6 +17,14 @@ The OAuth client (ServiceNow: Application Registry > OAuth - Authorization code
 grant, redirect URL http://localhost:8765/callback) comes from Secret Manager
 secret `servicenow-seed-oauth` as "instance|client_id|client_secret", or from
 SN_INSTANCE_URL / SN_CLIENT_ID / SN_CLIENT_SECRET.
+
+What `set` creates
+------------------
+For each user in users.json: the user (or updates to an existing one), roles,
+group memberships and the office kit in catalog.json. Then the hospital's
+shared and clinical equipment in equipment.json: departments, room-level
+locations, support groups, model categories and one asset per item, owned by a
+department rather than a person.
 
 What `set` records
 ------------------
@@ -220,6 +229,7 @@ class Manifest:
     user_snapshots: dict[str, dict] = field(default_factory=dict)  # sys_id -> fields before `set`
     users: dict[str, dict] = field(default_factory=dict)  # user_name -> {sys_id, email, created}
     items: dict[str, list[str]] = field(default_factory=dict)  # user_name -> catalog keys issued
+    equipment: dict[str, str] = field(default_factory=dict)  # asset tag -> sys_id (shared/clinical equipment)
 
     @classmethod
     def load(cls) -> "Manifest":
@@ -288,6 +298,16 @@ class Seeder:
         return self._find_or_create("cmn_location", f"name={_q(loc['name'])}", {
             k: loc[k] for k in ("name", "street", "city", "state", "zip", "country") if loc.get(k)})
 
+    def model_category(self, spec: dict) -> str:
+        """An existing category, or a new hardware one. ServiceNow allows one category per
+        CI class (cmdb_ci_hardware belongs to "Hardware"), so new ones get no CI class and
+        `equipment` creates each asset's CI itself."""
+        return self._find_or_create("cmdb_model_category", f"name={_q(spec['name'])}", {
+            "name": spec["name"], "asset_class": "alm_hardware"})
+
+    def group(self, name: str) -> str:
+        return self._find_or_create("sys_user_group", f"name={_q(name)}", {"name": name, "active": "true"})
+
     def department(self, name: str) -> str:
         return self._find_or_create("cmn_department", f"name={_q(name)}", {"name": name})
 
@@ -326,6 +346,12 @@ class Seeder:
         self.m.users[spec["user_name"]] = {"sys_id": sys_id, "email": spec.get("email", ""), "created": created,
                                            "location": fields.get("location", "")}
         self.m.save()
+        for group_name in spec.get("groups", []):
+            group_id = self.group(group_name)
+            if not self.sn.one("sys_user_grmember", f"user={sys_id}^group={group_id}"):
+                member = self.sn.create("sys_user_grmember", {"user": sys_id, "group": group_id})
+                self.m.track("sys_user_grmember", member["sys_id"])
+                log(f"  + member of {group_name}")
         for role_name in spec.get("roles", []):
             role = self.sn.one("sys_user_role", f"name={_q(role_name)}")
             if not role:
@@ -389,7 +415,56 @@ class Seeder:
             log(f"    + {item['publisher']} {item['product']}  tag {data['asset_tag']}")
 
 
-def cmd_set(sn: SN, users_file: Path, catalog_file: Path) -> None:
+    def equipment(self, spec: dict) -> None:
+        """Hospital equipment: departments, rooms, support groups and one asset per item."""
+        site = spec["site"]
+        categories = {c["name"]: self.model_category(c) for c in spec.get("categories", [])}
+        today = dt.date.today()
+        for item in spec["equipment"]:
+            if item["asset_tag"] in self.m.equipment:
+                continue
+            existing = self.sn.one("alm_hardware", f"asset_tag={_q(item['asset_tag'])}", "sys_id,comments")
+            if existing:
+                if SEED_MARK in (existing.get("comments") or ""):  # ours, from an earlier run
+                    self.m.equipment[item["asset_tag"]] = existing["sys_id"]
+                    self.m.save()
+                else:
+                    log(f"  = {item['asset_tag']} already exists and isn't seed data; left as is")
+                continue
+            category = categories.get(item["category"]) or self.category([item["category"]])
+            model = self._find_or_create(
+                "cmdb_hardware_product_model",
+                f"name={_q(item['model'])}^manufacturer={self.company(item['manufacturer'])}",
+                {"name": item["model"], "manufacturer": self.company(item["manufacturer"]),
+                 "model_number": item["model_number"], "cmdb_model_category": category})
+            room = self.location({**site, "name": f"{site['name']} - {item['room']}"})
+            bought = today - dt.timedelta(days=item["age_days"])
+            data = {
+                "model": model, "model_category": category, "asset_tag": item["asset_tag"],
+                "serial_number": item["serial"], "assigned_to": "", "install_status": "1",
+                "department": self.department(item["department"]), "cost_center": self.cost_center(item["department"]),
+                "location": room, "support_group": self.group(item["support_group"]), "cost": str(item["cost"]),
+                "purchase_date": bought.isoformat(),
+                "warranty_expiration": (bought + dt.timedelta(days=365 * item["warranty_years"])).isoformat(),
+                "comments": f"{SEED_MARK} equipment",
+            }
+            asset = self.sn.create("alm_hardware", data)
+            self.m.track("alm_hardware", asset["sys_id"])
+            if not asset.get("ci"):
+                # Tickets link to the CI, and the agent spots duplicate reports through it.
+                ci = self.sn.create("cmdb_ci_hardware", {
+                    "name": f"{item['model']} ({item['asset_tag']})", "asset_tag": item["asset_tag"],
+                    "serial_number": item["serial"], "model_id": model, "manufacturer": self.company(item["manufacturer"]),
+                    "department": data["department"], "location": room, "support_group": data["support_group"],
+                    "asset": asset["sys_id"]})
+                self.m.track("cmdb_ci", ci["sys_id"])
+                self.sn.update("alm_hardware", asset["sys_id"], {"ci": ci["sys_id"]})
+            self.m.equipment[item["asset_tag"]] = asset["sys_id"]
+            self.m.save()
+            log(f"  + {item['asset_tag']}  {item['manufacturer']} {item['model']}  ({item['department']}, {item['room']})")
+
+
+def cmd_set(sn: SN, users_file: Path, catalog_file: Path, equipment_file: Path | None = None) -> None:
     users = json.loads(users_file.read_text())
     catalog = json.loads(catalog_file.read_text())
     m = Manifest.load()
@@ -404,8 +479,12 @@ def cmd_set(sn: SN, users_file: Path, catalog_file: Path) -> None:
         log(f"{spec['user_name']}:")
         user = seeder.user(spec)
         seeder.issue(spec["user_name"], user, spec.get("items"), has_licenses)
+    equipment_file = equipment_file or HERE / "equipment.json"
+    if equipment_file.exists():
+        log("hospital equipment:")
+        seeder.equipment(json.loads(equipment_file.read_text()))
     m.save()
-    log(f"Done. {len(users)} users. Manifest: {MANIFEST}")
+    log(f"Done. {len(users)} users, {len(m.equipment)} pieces of equipment. Manifest: {MANIFEST}")
 
 
 # --- report -------------------------------------------------------------------------------------
@@ -414,6 +493,8 @@ def cmd_set(sn: SN, users_file: Path, catalog_file: Path) -> None:
 ITEM_FIELDS = ("sys_class_name,asset_tag,serial_number,display_name,model.display_name,model.model_number,"
                "model.manufacturer.name,model_category.name,install_status,purchase_date,warranty_expiration,"
                "end_date,cost,comments")
+EQUIPMENT_FIELDS = ("asset_tag,serial_number,model.display_name,model.manufacturer.name,department.name,"
+                    "location.name,support_group.name,warranty_expiration")
 STATUS = {"1": "In use", "2": "On order", "3": "In maintenance", "6": "In stock", "7": "Retired", "8": "Missing"}
 
 
@@ -438,7 +519,7 @@ def cmd_report(sn: SN, out: Path) -> None:
     from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     m = Manifest.load()
-    if not m.users:
+    if not m.users and not m.equipment:
         sys.exit("Nothing seeded yet. Run: sn_seed.py set users.json")
     people = collect(sn, m)
 
@@ -462,7 +543,8 @@ def cmd_report(sn: SN, out: Path) -> None:
 
     story = [Paragraph("Office Asset Register", title),
              Paragraph(f"Generated {dt.datetime.now():%B %d, %Y %H:%M}  |  {len(people)} people  |  "
-                       f"{sum(len(p['items']) for p in people)} assets  |  {html.escape(m.instance)}", small),
+                       f"{sum(len(p['items']) for p in people)} assets  |  {len(m.equipment)} pieces of equipment  |  "
+                       f"{html.escape(m.instance)}", small),
              Spacer(1, 12)]
     summary = [["Name", "User ID", "Department", "Location", "Assets", "Total cost"]]
     for p in people:
@@ -505,6 +587,23 @@ def cmd_report(sn: SN, out: Path) -> None:
             rows.append(["No assets assigned", "", "", "", "", "", "", "", ""])
         story.append(_table(rows, [0.95, 0.9, 1.85, 1.05, 0.8, 1.75, 0.6, 0.8, 1.0], green, band, colors, inch))
 
+    equipment = [sn.get("alm_hardware", sid, EQUIPMENT_FIELDS) for sid in m.equipment.values()]
+    equipment = [e for e in equipment if e]
+    if equipment:
+        story += [PageBreak(), Paragraph("Shared and clinical equipment", h1),
+                  Paragraph("Owned by departments, not people. Anyone can report a problem with it; tickets go to "
+                            "the support group.", small), Spacer(1, 8)]
+        rows = [["Asset tag", "Equipment", "Serial", "Department", "Location", "Supported by", "Warranty"]]
+        for e in sorted(equipment, key=lambda e: (e.get("department.name") or "", e.get("asset_tag") or "")):
+            rows.append([e.get("asset_tag") or "-",
+                         Paragraph(html.escape(" ".join(filter(None, [e.get("model.manufacturer.name"),
+                                                                      e.get("model.display_name")]))), cell),
+                         e.get("serial_number") or "-", Paragraph(html.escape(e.get("department.name") or "-"), cell),
+                         Paragraph(html.escape(e.get("location.name") or "-"), cell),
+                         Paragraph(html.escape(e.get("support_group.name") or "-"), cell),
+                         (e.get("warranty_expiration") or "-")[:10]])
+        story.append(_table(rows, [0.9, 2.3, 1.2, 1.4, 2.4, 1.2, 0.8], green, band, colors, inch))
+
     out.parent.mkdir(parents=True, exist_ok=True)
     doc = SimpleDocTemplate(str(out), pagesize=landscape(letter), leftMargin=0.5 * inch, rightMargin=0.5 * inch,
                             topMargin=0.6 * inch, bottomMargin=0.6 * inch, title="Office Asset Register")
@@ -528,8 +627,10 @@ def _table(rows, widths, green, band, colors, inch):
 
 
 # Delete order: records that reference others first.
-DELETE_ORDER = ["sys_user_has_role", "alm_license", "alm_hardware", "cmdb_software_product_model", "cmdb_hardware_product_model",
-                "core_company", "sys_user", "cmn_location", "cmn_department", "cmn_cost_center"]
+# cmdb_ci: the configuration items ServiceNow created for seeded assets.
+DELETE_ORDER = ["sys_user_grmember", "sys_user_has_role", "alm_license", "alm_hardware", "cmdb_ci",
+                "cmdb_software_product_model", "cmdb_hardware_product_model", "cmdb_model_category", "core_company",
+                "sys_user_group", "sys_user", "cmn_location", "cmn_department", "cmn_cost_center"]
 
 
 def plan_reset(sn: SN, m: Manifest, only: set[str] | None = None) -> dict:
@@ -551,6 +652,18 @@ def plan_reset(sn: SN, m: Manifest, only: set[str] | None = None) -> dict:
             ids = marked if only else list(dict.fromkeys(m.created.get(table, []) + marked))
             if ids:
                 plan["delete"][table] = ids
+                if table == "alm_hardware":
+                    cis = [sn.get(table, sid, "ci").get("ci") for sid in ids]
+                    if not only:
+                        cis += m.created.get("cmdb_ci", [])
+                    cis = list(dict.fromkeys(c for c in cis if c))
+                    if cis:
+                        plan["delete"]["cmdb_ci"] = cis
+    if only and user_ids and m.created.get("sys_user_grmember"):
+        members = [r["sys_id"] for r in sn.query("sys_user_grmember", f"userIN{','.join(user_ids)}")
+                   if r["sys_id"] in m.created["sys_user_grmember"]]
+        if members:
+            plan["delete"]["sys_user_grmember"] = members
     if only and user_ids and m.created.get("sys_user_has_role"):
         grants = [r["sys_id"] for r in sn.query("sys_user_has_role", f"userIN{','.join(user_ids)}")
                   if r["sys_id"] in m.created["sys_user_has_role"]]
@@ -562,7 +675,7 @@ def plan_reset(sn: SN, m: Manifest, only: set[str] | None = None) -> dict:
             plan["delete"]["sys_user"] = created_users
     else:
         for table in DELETE_ORDER:
-            if table not in ("alm_license", "alm_hardware") and m.created.get(table):
+            if table not in ("alm_license", "alm_hardware", "cmdb_ci") and m.created.get(table):
                 plan["delete"][table] = list(m.created[table])
     plan["delete"] = {t: plan["delete"][t] for t in DELETE_ORDER if t in plan["delete"]}
     return plan
@@ -602,8 +715,11 @@ def cmd_reset(sn: SN, yes: bool, memory: bool, only: set[str] | None = None) -> 
             try:
                 sn.delete(table, sys_id)
                 deleted.add(sys_id)
-            except RuntimeError as exc:  # still referenced by something outside the seed
-                failed.append((table, sys_id, str(exc)))
+            except RuntimeError as exc:
+                if "404" in str(exc):  # already gone, e.g. a CI removed with its asset
+                    deleted.add(sys_id)
+                else:  # still referenced by something outside the seed
+                    failed.append((table, sys_id, str(exc)))
         log(f"deleted {table}: {len(ids)}")
     if memory:
         _delete_memories(emails)
@@ -624,11 +740,30 @@ def cmd_reset(sn: SN, yes: bool, memory: bool, only: set[str] | None = None) -> 
         m.created = {}
         for table, sys_id, _ in failed:
             m.created.setdefault(table, []).append(sys_id)
-        m.users, m.user_snapshots, m.items = {}, {}, {}
+        m.users, m.user_snapshots, m.items, m.equipment = {}, {}, {}, {}
         m.save()
     else:
         MANIFEST.unlink(missing_ok=True)
         log("Reset complete.")
+
+
+def cmd_clear_tickets(sn: SN, yes: bool) -> None:
+    """Deletes the seeded users' tickets and any ticket on seeded equipment, keeping
+    users, devices and equipment: a clean slate for the next demo run."""
+    m = Manifest.load()
+    ids = ",".join(u["sys_id"] for u in m.users.values())
+    cis = [c for c in (sn.get("alm_hardware", sid, "ci").get("ci") for sid in m.equipment.values()) if c]
+    cis += [r["sys_id"] for r in sn.query("cmdb_ci", f"assetIN{','.join(m.equipment.values())}")] if m.equipment else []
+    q = "^OR".join(filter(None, [f"caller_idIN{ids}" if ids else "", f"opened_byIN{ids}" if ids else "",
+                                 f"cmdb_ciIN{','.join(dict.fromkeys(cis))}" if cis else ""]))
+    incidents = sn.query("incident", q, "sys_id,number,short_description") if q else []
+    log(f"tickets to delete ({len(incidents)}): " + ", ".join(i["number"] for i in incidents))
+    if not yes:
+        log("\nDry run. Re-run with --yes to apply.")
+        return
+    for inc in incidents:
+        sn.delete("incident", inc["sys_id"])
+    log(f"deleted {len(incidents)} tickets")
 
 
 def _delete_memories(emails: list[str]) -> None:
@@ -655,6 +790,8 @@ def main() -> None:
     p = sub.add_parser("set", help="create/update users and issue office items")
     p.add_argument("users", type=Path)
     p.add_argument("--catalog", type=Path, default=HERE / "catalog.json")
+    p.add_argument("--equipment", type=Path, default=HERE / "equipment.json",
+                   help="shared and clinical equipment to create (default seed/equipment.json)")
     p = sub.add_parser("report", help="write the PDF asset register")
     p.add_argument("--out", type=Path, default=STATE_DIR / "office-assets.pdf")
     p = sub.add_parser("reset", help="undo everything `set` did and delete the users' tickets")
@@ -662,6 +799,8 @@ def main() -> None:
     p.add_argument("--memory", action="store_true", help="also delete the users' agent memories")
     p.add_argument("--user", action="append", dest="users", metavar="USER_NAME",
                    help="reset only this seeded user (repeatable); default is everything")
+    p = sub.add_parser("clear-tickets", help="delete the demo tickets only (seeded users' and on seeded equipment)")
+    p.add_argument("--yes", action="store_true", help="apply (default is a dry run)")
     args = ap.parse_args()
 
     client = load_client()
@@ -669,9 +808,11 @@ def main() -> None:
         return login(client)
     sn = SN(client)
     if args.cmd == "set":
-        cmd_set(sn, args.users, args.catalog)
+        cmd_set(sn, args.users, args.catalog, args.equipment)
     elif args.cmd == "report":
         cmd_report(sn, args.out)
+    elif args.cmd == "clear-tickets":
+        cmd_clear_tickets(sn, args.yes)
     elif args.cmd == "reset":
         cmd_reset(sn, args.yes, args.memory, set(args.users) if args.users else None)
 

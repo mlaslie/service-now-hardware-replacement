@@ -35,7 +35,7 @@ class Severity(str, Enum):
 
 class PhotoFindings(BaseModel):
     image_kind: ImageKind = Field(description="label = asset/serial sticker close-up; damage = shows a fault; both; device = device with neither; unrelated = not hardware")
-    device_type: str = Field(default="", description="laptop, desktop, monitor, phone, tablet, keyboard, mouse, dock, headset, printer, other")
+    device_type: str = Field(default="", description="laptop, desktop, monitor, phone, tablet, keyboard, mouse, dock, headset, printer, medical equipment (imaging systems, infusion pumps, patient monitors, hospital beds, ventilators...), other")
     manufacturer: str = ""
     model: str = Field(default="", description="Marketing model name, e.g. 'ThinkPad X1 Carbon Gen 11'")
     part_number: str = Field(default="", description="Part/model/MTM number exactly as printed")
@@ -44,7 +44,7 @@ class PhotoFindings(BaseModel):
     damage_present: bool = False
     damage_description: str = Field(default="", description="One plain-language sentence a non-technical person understands")
     damage_severity: Severity = Severity.none
-    issue_category: str = Field(default="", description="One of: cracked_screen, physical_damage, liquid_damage, battery, keyboard_trackpad, wont_power_on, other, or empty if no fault is visible")
+    issue_category: str = Field(default="", description="For personal devices one of: cracked_screen, physical_damage, liquid_damage, battery, keyboard_trackpad, wont_power_on, other. For medical or shared equipment one of: error_alarm (an error or alarm on screen), damaged, safety_concern, not_working, other. Empty if no fault is visible")
     supports_replacement: bool = Field(default=False, description="True when the visible damage alone justifies replacing rather than repairing")
     confidence: float = Field(default=0.0, ge=0, le=1, description="Confidence in the identification and label reading")
     notes: str = Field(default="", description="Anything unreadable or uncertain, e.g. 'serial partially obscured by glare'")
@@ -62,6 +62,9 @@ Rules:
 - You cannot decode barcodes or QR codes. Read only the characters printed next to them.
 - Damage: describe only what is visible. Cracks, spider-webbing, dead pixels, dents, bent
   hinges, missing keys, swollen battery (lifted trackpad or bulging case), corrosion.
+- Medical equipment: read error codes or alarm text on its screen into damage_description, and
+  use safety_concern for anything that could harm a patient (exposed wiring, broken bed rails,
+  cracked pump housing, fluid inside).
 - supports_replacement is true for cracked or shattered screens, swollen batteries, broken
   hinges, liquid corrosion, or a cracked chassis.
 """

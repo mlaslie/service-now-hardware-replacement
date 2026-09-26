@@ -8,8 +8,14 @@ ServiceNow account allows. The token is held for the length of one request in
 a ContextVar and never written to session state, memory or logs.
 
 Hardware tickets are Incidents with category `hardware`. Every read or write of
-a ticket is additionally filtered to `caller_id = <signed-in user>`, so asking
-for someone else's ticket number returns "not found".
+a ticket is additionally filtered to tickets the signed-in user reported
+(`caller_id`) or follows (`watch_list`), so asking for anyone else's ticket
+number returns "not found".
+
+Assets follow the usual hospital layout: personal devices are assigned to a
+person; shared and clinical equipment belongs to a department, sits at a
+location and is supported by a group (Clinical Engineering, Imaging
+Engineering, the IT Service Desk).
 """
 
 import contextvars
@@ -38,12 +44,21 @@ URGENCY_TO_IMPACT_URGENCY = {"critical": ("1", "1"), "high": ("1", "2"), "normal
 _ASSET_FIELDS = ",".join([
     "sys_id", "asset_tag", "serial_number", "display_name", "model.display_name", "model.manufacturer.name",
     "model_category.name", "purchase_date", "warranty_expiration", "install_status", "assigned_to", "ci",
+    "assigned_to.name", "department", "department.name", "location", "location.name", "support_group",
+    "support_group.name", "cost_center.name", "managed_by",
 ])
 _INCIDENT_FIELDS = ",".join([
     "sys_id", "number", "short_description", "description", "state", "priority", "urgency", "impact",
-    "category", "subcategory", "sys_created_on", "sys_updated_on", "assignment_group.name",
-    "assigned_to.name", "cmdb_ci.name",
+    "category", "subcategory", "sys_created_on", "sys_updated_on", "assignment_group", "assignment_group.name",
+    "assigned_to.name", "cmdb_ci.name", "caller_id", "caller_id.name", "watch_list",
 ])
+
+# Device kinds, which decide how a problem is fixed:
+#   personal  - assigned to a person: replaced and shipped
+#   shared    - department IT equipment (reading-room workstation, printer): repaired on site
+#   clinical  - medical equipment (model category in config.CLINICAL_CATEGORIES): repaired on
+#               site by its support group, usually Clinical or Imaging Engineering
+PERSONAL, SHARED, CLINICAL = "personal", "shared", "clinical"
 
 
 class NotSignedIn(Exception):
@@ -106,7 +121,7 @@ async def current_user(token: str) -> dict:
     sys_id = me.get("user_sys_id")
     if not sys_id:
         raise NotSignedIn()
-    fields = ("sys_id,user_name,name,first_name,email,phone,mobile_phone,title,"
+    fields = ("sys_id,user_name,name,first_name,email,phone,mobile_phone,title,department,"
               "department.name,cost_center.name,cost_center.code,manager.name,manager.email,"
               "location.name,location.street,location.city,location.state,location.zip,location.country")
     rec = (await _request("GET", f"/api/now/table/sys_user/{sys_id}", token=token,
@@ -122,6 +137,8 @@ async def current_user(token: str) -> dict:
         "phone": rec.get("mobile_phone") or rec.get("phone") or "",
         "title": rec.get("title", ""),
         "department": rec.get("department.name", ""),
+        "department_id": _value(rec.get("department")),
+        **await _groups(sys_id, token),
         "cost_center": " ".join(filter(None, [rec.get("cost_center.code"), rec.get("cost_center.name")])),
         "manager": rec.get("manager.name", ""),
         "location": rec.get("location.name", ""),
@@ -129,6 +146,20 @@ async def current_user(token: str) -> dict:
     }
     _user_cache[key] = (time.monotonic() + 300, user)
     return user
+
+
+async def _groups(user_sys_id: str, token: str) -> dict:
+    """The user's group memberships, used to recognise equipment their group supports.
+    Empty if ServiceNow doesn't let the user read memberships."""
+    try:
+        rows = (await _request("GET", "/api/now/table/sys_user_grmember", token=token, params={
+            "sysparm_query": f"user={user_sys_id}", "sysparm_fields": "group,group.name", "sysparm_limit": 50,
+        })).get("result", [])
+    except ServiceNowError as exc:
+        logger.info("group memberships not readable: %s", exc)
+        rows = []
+    return {"group_ids": [_value(r.get("group")) for r in rows],
+            "groups": [r.get("group.name", "") for r in rows]}
 
 
 # --- Assets ----------------------------------------------------------------------
@@ -151,9 +182,17 @@ def _device_type(category: str, name: str) -> str:
     return "other"
 
 
+def _kind(category: str, assigned_to: str) -> str:
+    if category.lower() in {c.lower() for c in config.CLINICAL_CATEGORIES}:
+        return CLINICAL
+    return PERSONAL if assigned_to else SHARED
+
+
 def _asset(rec: dict) -> dict:
     name = rec.get("model.display_name") or rec.get("display_name", "")
-    kind = _device_type(rec.get("model_category.name") or "", name)
+    category = rec.get("model_category.name") or ""
+    device_kind = _kind(category, _value(rec.get("assigned_to")))
+    kind = "medical equipment" if device_kind == CLINICAL else _device_type(category, name)
     return {
         "sys_id": rec.get("sys_id", ""),
         "asset_tag": rec.get("asset_tag", ""),
@@ -164,15 +203,73 @@ def _asset(rec: dict) -> dict:
         "purchase_date": rec.get("purchase_date", ""),
         "warranty_end": rec.get("warranty_expiration", ""),
         "assigned_to": _value(rec.get("assigned_to")),
+        "assigned_to_name": rec.get("assigned_to.name", ""),
         "ci": _value(rec.get("ci")),
+        "kind": device_kind,
+        "category": category,
+        "department_id": _value(rec.get("department")),
+        "department": rec.get("department.name", ""),
+        "location_id": _value(rec.get("location")),
+        "location": rec.get("location.name", ""),
+        "support_group_id": _value(rec.get("support_group")),
+        "support_group": rec.get("support_group.name", ""),
+        "cost_center": rec.get("cost_center.name", ""),
+        "managed_by": _value(rec.get("managed_by")),
     }
 
 
+async def _assets(query: str, limit: int) -> list[dict]:
+    """Searches every configured asset table (alm_hardware, plus e.g. a clinical
+    device table where a hospital keeps medical equipment separately)."""
+    out: list[dict] = []
+    for table in config.ASSET_TABLES:
+        result = await _request("GET", f"/api/now/table/{table}",
+                                params={"sysparm_query": query, "sysparm_fields": _ASSET_FIELDS, "sysparm_limit": limit})
+        out += [_asset(r) for r in result.get("result", [])]
+        if len(out) >= limit:
+            break
+    out = out[:limit]
+    await _link_cis(out)
+    return out
+
+
+async def _link_cis(assets: list[dict]) -> None:
+    """ServiceNow keeps an asset's `ci` only when its model category has a CI class;
+    equipment categories often don't, but the CI still points back at the asset."""
+    missing = {a["sys_id"]: a for a in assets if not a["ci"]}
+    if not missing:
+        return
+    try:
+        result = await _request("GET", "/api/now/table/cmdb_ci", params={
+            "sysparm_query": f"assetIN{','.join(missing)}", "sysparm_fields": "sys_id,asset", "sysparm_limit": len(missing)})
+    except ServiceNowError as exc:
+        logger.info("CIs not readable: %s", exc)
+        return
+    for row in result.get("result", []):
+        asset = missing.get(_value(row.get("asset")))
+        if asset:
+            asset["ci"] = row["sys_id"]
+
+
 async def my_assets(user_sys_id: str, limit: int = 20) -> list[dict]:
-    q = f"assigned_to={user_sys_id}^install_status!=7^ORDERBYmodel_category"  # 7 = retired
-    result = await _request("GET", "/api/now/table/alm_hardware",
-                            params={"sysparm_query": q, "sysparm_fields": _ASSET_FIELDS, "sysparm_limit": limit})
-    return [_asset(r) for r in result.get("result", [])]
+    return await _assets(f"assigned_to={user_sys_id}^install_status!=7^ORDERBYmodel_category", limit)  # 7 = retired
+
+
+async def department_assets(department_id: str, limit: int = 100) -> list[dict]:
+    """Equipment owned by a department and not assigned to a person."""
+    if not department_id:
+        return []
+    return await _assets(f"department={department_id}^assigned_toISEMPTY^install_status!=7^ORDERBYdisplay_name", limit)
+
+
+async def search_assets(term: str, limit: int = 20) -> list[dict]:
+    """Assets whose name, category or location mentions `term`, anywhere in the inventory."""
+    term = re.sub(r"[^\w .+-]", "", term).strip()
+    if len(term) < 2:
+        return []
+    q = (f"display_nameLIKE{term}^ORmodel_category.nameLIKE{term}^ORlocation.nameLIKE{term}"
+         "^install_status!=7")
+    return await _assets(q, limit)
 
 
 async def find_asset(asset_tag: str = "", serial_number: str = "") -> dict | None:
@@ -185,10 +282,9 @@ async def find_asset(asset_tag: str = "", serial_number: str = "") -> dict | Non
     if serial:
         clauses.append(f"serial_number={serial}")
     for clause in clauses:
-        result = await _request("GET", "/api/now/table/alm_hardware",
-                                params={"sysparm_query": clause, "sysparm_fields": _ASSET_FIELDS, "sysparm_limit": 1})
-        if result.get("result"):
-            return _asset(result["result"][0])
+        found = await _assets(clause, 1)
+        if found:
+            return found[0]
     return None
 
 
@@ -211,13 +307,47 @@ def _incident(rec: dict) -> dict:
         "assignment_group": rec.get("assignment_group.name", ""),
         "assigned_to": rec.get("assigned_to.name", ""),
         "device": rec.get("cmdb_ci.name", ""),
+        "assignment_group_id": _value(rec.get("assignment_group")),
+        "caller_id": _value(rec.get("caller_id")),
+        "caller": rec.get("caller_id.name", ""),
+        "watch_list": [w for w in str(rec.get("watch_list") or "").split(",") if w],
         "url": f"{_base()}/nav_to.do?uri=incident.do?sys_id={rec.get('sys_id', '')}",
     }
 
 
 def _mine(user_sys_id: str) -> str:
-    """The filter every ticket read and write goes through."""
-    return f"caller_id={user_sys_id}^category={HARDWARE}"
+    """The filter every ticket read and write goes through: tickets the user
+    reported or follows (watch list). `^OR` binds to the condition before it."""
+    return f"caller_id={user_sys_id}^ORwatch_listLIKE{user_sys_id}^category={HARDWARE}"
+
+
+async def open_incidents_for_ci(ci: str, limit: int = 3) -> list[dict]:
+    """Open hardware tickets on a device, whoever reported them: shared equipment
+    is often reported by several people. Empty if ServiceNow hides them."""
+    if not ci:
+        return []
+    q = f"cmdb_ci={ci}^category={HARDWARE}^stateIN{','.join(ACTIVE_STATES)}^ORDERBYDESCsys_created_on"
+    try:
+        result = await _request("GET", "/api/now/table/incident",
+                                params={"sysparm_query": q, "sysparm_fields": _INCIDENT_FIELDS, "sysparm_limit": limit})
+    except ServiceNowError as exc:
+        logger.info("open tickets for the device not readable: %s", exc)
+        return []
+    return [_incident(r) for r in result.get("result", [])]
+
+
+async def follow_incident(user_sys_id: str, sys_id: str, note: str) -> dict:
+    """Adds the user to a ticket's watch list (so it shows up as theirs) and adds
+    their note. Returns the ticket as ServiceNow saved it."""
+    current = (await _request("GET", f"/api/now/table/incident/{sys_id}",
+                              params={"sysparm_fields": "watch_list"})).get("result") or {}
+    watchers = [w for w in str(current.get("watch_list") or "").split(",") if w]
+    fields = {"comments": note}
+    if user_sys_id not in watchers:
+        fields["watch_list"] = ",".join(watchers + [user_sys_id])
+    result = await _request("PATCH", f"/api/now/table/incident/{sys_id}", json=fields,
+                            params={"sysparm_fields": _INCIDENT_FIELDS, "sysparm_display_value": "false"})
+    return _incident(result["result"])
 
 
 async def create_incident(fields: dict) -> dict:

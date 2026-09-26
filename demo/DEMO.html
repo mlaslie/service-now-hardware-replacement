@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Riverside Demo Run Sheet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+  :root {
+    color-scheme: light;
+    --ground: #F4F7F5;
+    --surface: #FFFFFF;
+    --ink: #1B2621;
+    --muted: #5B6A63;
+    --line: #D9E2DD;
+    --accent: #22873B;
+    --accent-soft: #E3F1E6;
+    --jane: #2C66A8;
+    --jane-soft: #E4EDF7;
+    --john: #8A5A10;
+    --john-soft: #F5ECDD;
+    --desk: #6B4FA0;
+    --desk-soft: #ECE7F5;
+    --done: #9AA5A0;
+    --code-bg: #EEF3F0;
+    --focus: #1F6FEB;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --cond: "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground: #111815; --surface: #18221E; --ink: #E4ECE8; --muted: #9DADA5; --line: #2A3832;
+      --accent: #4CC06A; --accent-soft: #1C3325; --jane: #7FB0E8; --jane-soft: #1B2A3B;
+      --john: #E0B062; --john-soft: #33291A; --desk: #B9A2E8; --desk-soft: #2A2338;
+      --done: #5E6B66; --code-bg: #0E1411; --focus: #7FB0E8;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #111815; --surface: #18221E; --ink: #E4ECE8; --muted: #9DADA5; --line: #2A3832;
+    --accent: #4CC06A; --accent-soft: #1C3325; --jane: #7FB0E8; --jane-soft: #1B2A3B;
+    --john: #E0B062; --john-soft: #33291A; --desk: #B9A2E8; --desk-soft: #2A2338;
+    --done: #5E6B66; --code-bg: #0E1411; --focus: #7FB0E8;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font: 400 15px/1.55 var(--sans);
+    padding-inline: 16px;
+  }
+  .wrap { max-width: 780px; margin: 0 auto; padding-block: 0 64px; }
+  a { color: var(--accent); }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+
+  /* sticky progress */
+  .bar {
+    position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
+    margin-inline: -16px; padding: 10px 16px;
+    background: color-mix(in srgb, var(--ground) 92%, transparent);
+    backdrop-filter: blur(6px); border-bottom: 1px solid var(--line);
+  }
+  .bar-inner { max-width: 780px; margin: 0 auto; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .bar strong { font: 600 14px/1 var(--cond); letter-spacing: .04em; text-transform: uppercase; }
+  .meter { flex: 1 1 160px; height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; }
+  .meter span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s ease; }
+  .count { font: 500 13px/1 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+  .btn {
+    font: 500 13px/1 var(--sans); color: var(--ink); background: var(--surface);
+    border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; cursor: pointer;
+  }
+  .btn:hover { border-color: var(--muted); }
+  .btn.warn { color: #B42318; border-color: #B42318; }
+
+  header.top { padding-block: 28px 8px; }
+  .eyebrow { font: 600 12px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+  h1 { font: 600 34px/1.1 var(--cond); margin: 8px 0 10px; text-wrap: balance; letter-spacing: -.01em; }
+  .lede { color: var(--muted); max-width: 64ch; margin: 0; }
+
+  /* people + equipment */
+  .cast { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 20px 0 8px; }
+  .person { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+  .person b { display: block; font-weight: 600; }
+  .person small { color: var(--muted); display: block; }
+  .person .mono { font: 400 12.5px/1.4 var(--mono); }
+  .table-wrap { overflow-x: auto; margin-top: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font: 600 11.5px/1 var(--cond); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  td.tag { font-family: var(--mono); white-space: nowrap; }
+
+  /* sections */
+  section { margin-top: 34px; }
+  .sec-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; border-bottom: 2px solid var(--ink); padding-bottom: 6px; }
+  h2 { font: 600 22px/1.2 var(--cond); margin: 0; text-wrap: balance; }
+  .time { font: 500 12.5px/1 var(--mono); color: var(--muted); margin-left: auto; }
+  .who {
+    font: 600 11px/1 var(--cond); letter-spacing: .08em; text-transform: uppercase;
+    padding: 5px 7px; border-radius: 4px; white-space: nowrap;
+  }
+  .who.jane { color: var(--jane); background: var(--jane-soft); }
+  .who.john { color: var(--john); background: var(--john-soft); }
+  .who.desk { color: var(--desk); background: var(--desk-soft); }
+  .who.you { color: var(--accent); background: var(--accent-soft); }
+
+  ol.steps { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+  .step {
+    display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: start;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px;
+    transition: opacity .2s ease, background .2s ease;
+  }
+  .step input[type="checkbox"] {
+    width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--accent); cursor: pointer;
+  }
+  .step .body { min-width: 0; display: grid; gap: 8px; }
+  .step .body > p { margin: 0; }
+  .step .label { font-weight: 600; }
+  .step .expect { color: var(--muted); font-size: 14px; }
+  .step .expect b { color: var(--ink); font-weight: 600; }
+  .step.done { background: transparent; opacity: .55; }
+  .step.done .body, .step.done .body * { color: var(--done) !important; }
+  .step.done .label { text-decoration: line-through; }
+
+  .phrase {
+    display: flex; align-items: stretch; gap: 0; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--code-bg); overflow: hidden;
+  }
+  .phrase code {
+    flex: 1 1 auto; min-width: 0; padding: 9px 11px; font: 400 13.5px/1.45 var(--mono);
+    white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink);
+  }
+  .phrase button {
+    flex: 0 0 auto; font: 500 12.5px/1 var(--sans); border: 0; border-left: 1px solid var(--line);
+    background: var(--surface); color: var(--accent); padding: 0 14px; cursor: pointer; min-width: 74px;
+  }
+  .phrase button:hover { background: var(--accent-soft); }
+  .phrase button.ok { color: var(--surface); background: var(--accent); }
+
+  blockquote.say {
+    margin: 12px 0 0; padding: 10px 14px; border-left: 3px solid var(--accent);
+    background: var(--accent-soft); border-radius: 0 6px 6px 0; font-style: italic;
+  }
+  blockquote.say::before { content: "Say"; display: block; font: 600 11px/1 var(--cond); font-style: normal;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--accent); margin-bottom: 6px; }
+  .note { color: var(--muted); font-size: 13.5px; margin: 10px 0 0; }
+  .trouble td:first-child { width: 42%; }
+  kbd { font: 500 12px/1 var(--mono); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 2px 5px; background: var(--surface); }
+
+  @media (max-width: 520px) {
+    h1 { font-size: 28px; }
+    .phrase { flex-direction: column; }
+    .phrase button { border-left: 0; border-top: 1px solid var(--line); padding: 9px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="bar" role="region" aria-label="Progress">
+  <div class="bar-inner">
+    <strong>Run sheet</strong>
+    <div class="meter" aria-hidden="true"><span id="meter"></span></div>
+    <span class="count" id="count">0 / 0 done</span>
+    <button class="btn" id="reset" type="button">Uncheck all</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <header class="top">
+    <div class="eyebrow">Riverside Medical Center · Hardware Repair &amp; Replacement agent</div>
+    <h1>Hospital demo, about 12 minutes</h1>
+    <p class="lede">Anyone at the hospital reports broken equipment in a sentence or a photo, on a phone or a desktop.
+      Nobody needs an asset tag, a form or the name of the team that fixes MRIs. The report reaches the right team at
+      the right room, people who report the same thing join one ticket, and "any update?" always gets a live answer.</p>
+
+    <div class="cast">
+      <div class="person"><span class="who jane">Jane · phone</span>
+        <b style="margin-top:8px">Jane Doe</b><small>MRI Technologist, Radiology</small>
+        <small class="mono">jane.doe@example.com · jane.doe</small></div>
+      <div class="person"><span class="who john">John · desktop</span>
+        <b style="margin-top:8px">John Doe</b><small>IT Systems Analyst, IT · Service Desk group</small>
+        <small class="mono">john.doe@example.com · john.doe</small></div>
+      <div class="person"><span class="who desk">Service desk</span>
+        <b style="margin-top:8px">You, in ServiceNow</b><small>Works the tickets between scenes</small>
+        <small class="mono">admin</small></div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Tag</th><th>Equipment</th><th>Department · location</th><th>Supported by</th></tr></thead>
+        <tbody>
+          <tr><td class="tag">CE-10421</td><td>GE SIGNA Explorer 1.5T MRI</td><td>Radiology · MRI 1 (Room 104)</td><td>Imaging Engineering</td></tr>
+          <tr><td class="tag">610204</td><td>Dell Precision reading workstation</td><td>Radiology · Reading Room 2</td><td>Service Desk</td></tr>
+          <tr><td class="tag">CE-20457</td><td>BD Alaris 8015 infusion pump</td><td>Emergency Department · Bay 7</td><td>Clinical Engineering</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </header>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="sec-head"><h2>Before you start</h2><span class="time">once</span></div>
+    <ol class="steps">
+      <li class="step" data-id="prep-clear"><input type="checkbox" id="c-prep-clear" aria-label="Done: clear tickets">
+        <div class="body"><p class="label">Clear old demo tickets (keeps users and equipment)</p>
+          <div class="phrase"><code>cd ~/ADK/hardware_replacement &amp;&amp; uv run --group seed python seed/sn_seed.py clear-tickets --yes</code><button type="button">Copy</button></div>
+          <p class="expect">If the users or equipment were reset, seed them again first:</p>
+          <div class="phrase"><code>cd ~/ADK/hardware_replacement &amp;&amp; uv run --group seed python seed/sn_seed.py set seed/users.example.json</code><button type="button">Copy</button></div>
+        </div></li>
+      <li class="step" data-id="prep-report"><input type="checkbox" id="c-prep-report" aria-label="Done: asset register">
+        <div class="body"><p class="label">Optional handout: the asset register PDF</p>
+          <div class="phrase"><code>cd ~/ADK/hardware_replacement &amp;&amp; uv run --group seed python seed/sn_seed.py report &amp;&amp; open seed/state/office-assets.pdf</code><button type="button">Copy</button></div>
+        </div></li>
+      <li class="step" data-id="prep-pass"><input type="checkbox" id="c-prep-pass" aria-label="Done: Jane's password">
+        <div class="body"><p class="label">Jane has a ServiceNow password</p>
+          <p class="expect">As admin: <a href="https://INSTANCE.service-now.com/sys_user.do?sys_id=fed1943173e783508dd4fed25ab8b7db" target="_blank" rel="noopener">jane.doe's user record</a>,
+            then <b>Set Password</b>, untick <b>Password needs reset</b>, and click <b>Update</b>.</p>
+        </div></li>
+      <li class="step" data-id="prep-browsers"><input type="checkbox" id="c-prep-browsers" aria-label="Done: browsers">
+        <div class="body"><p class="label">One browser profile per person, each authorized as that person</p>
+          <p class="expect"><span class="who jane">Jane</span> Gemini Enterprise <b>mobile app</b> (or a browser) as jane.doe@example.com.
+            <span class="who john">John</span> Gemini Enterprise in a <b>desktop browser</b> as john.doe@example.com.
+            On first use each authorizes ServiceNow as <b>jane.doe</b> / <b>john.doe</b>. <b>Never authorize while that browser is signed in to ServiceNow as admin.</b></p>
+        </div></li>
+      <li class="step" data-id="prep-photos"><input type="checkbox" id="c-prep-photos" aria-label="Done: photos">
+        <div class="body"><p class="label">Photos where the phone or desktop can attach them</p>
+          <p class="expect">Clinical Engineering stickers and laptop photos. In a Mac file dialog, <kbd>⌘</kbd><kbd>⇧</kbd><kbd>G</kbd> takes a pasted path.</p>
+          <div class="phrase"><code>~/ADK/hardware_replacement/demo/tag-pump.jpg</code><button type="button">Copy</button></div>
+          <div class="phrase"><code>~/ADK/hardware_replacement/demo/tag-mri.jpg</code><button type="button">Copy</button></div>
+          <div class="phrase"><code>~/ADK/hardware_replacement/demo/cracked.jpg</code><button type="button">Copy</button></div>
+        </div></li>
+      <li class="step" data-id="prep-sn"><input type="checkbox" id="c-prep-sn" aria-label="Done: service desk tab">
+        <div class="body"><p class="label">Service desk tab open (admin, third browser profile)</p>
+          <p class="expect"><a href="https://INSTANCE.service-now.com/incident_list.do?sysparm_query=category%3Dhardware%5EORDERBYDESCsys_created_on" target="_blank" rel="noopener">Hardware tickets, newest first</a></p>
+        </div></li>
+    </ol>
+    <p class="note">Start every scene in a <b>new conversation</b>. The agent first asks "Are you on the Gemini Enterprise Desktop or Mobile App?": answer <b>1</b> on the phone, <b>2</b> on desktop.</p>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="sec-head"><h2>Opening</h2><span class="time">30 sec</span></div>
+    <blockquote class="say">In a hospital, the person who notices a broken MRI or a cracked infusion pump is a technologist or a
+      nurse in the middle of a shift. Today they phone the service desk or fill in a form that asks for an asset tag and a
+      team they don't know. This agent takes a sentence or a photo. It already knows who they are, because Gemini
+      Enterprise passes their identity through to ServiceNow.</blockquote>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="sec-head"><span class="who jane">Jane · phone</span><h2>1 · Jane reports the MRI in one sentence</h2><span class="time">3 min</span></div>
+    <ol class="steps">
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label">New conversation. Jane types:</p>
+          <div class="phrase"><code>The MRI in room 104 is showing a gradient coil error and we have patients waiting</code><button type="button">Copy</button></div>
+        </div></li>
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label">Mobile or desktop? Reply:</p>
+          <div class="phrase"><code>1</code><button type="button">Copy</button></div>
+        </div></li>
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label">"Is this the right device?" Reply 1 (yes)</p>
+          <p class="expect">Shows the <b>SIGNA Explorer MRI, tag CE-10421, S/N GEMR15E0421</b>, MRI 1 (Room 104),
+            <b>Belongs to: Radiology (your department)</b>.</p>
+          <div class="phrase"><code>1</code><button type="button">Copy</button></div>
+        </div></li>
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label">Photo step: skip it (reply 1), or attach any photo of a screen</p>
+          <p class="expect">The problem (error or alarm, urgent because patients are waiting) came from the sentence, so it goes straight here.</p>
+          <div class="phrase"><code>1</code><button type="button">Copy</button></div>
+        </div></li>
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label">Review, then submit: reply 1</p>
+          <p class="expect"><b>On-site repair, handled by Imaging Engineering</b>, location, department, priority 2 - High, reported by Jane.</p>
+          <div class="phrase"><code>1</code><button type="button">Copy</button></div>
+        </div></li>
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label">Show the ticket in the service desk tab</p>
+          <p class="expect"><b>Assignment group</b> Imaging Engineering · <b>Location</b> MRI 1 (Room 104) · <b>Configuration item</b> the MRI · description with department and ownership.</p>
+        </div></li>
+    </ol>
+    <blockquote class="say">Jane never typed a tag, a form field or a team name. The agent found the MRI from "room 104", asked him to
+      check it against the sticker, and routed it to Imaging Engineering at the right room. On his phone it's plain text with
+      numbered choices; on a desktop the same steps are buttons.</blockquote>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="sec-head"><span class="who john">John · desktop</span><h2>2 · John reports the same MRI and joins Jane's ticket</h2><span class="time">2 min</span></div>
+    <ol class="steps">
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label">New conversation. John types:</p>
+          <div class="phrase"><code>MRI 1 in radiology is down</code><button type="button">Copy</button></div>
+        </div></li>
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label">Mobile or desktop? Reply:</p>
+          <div class="phrase"><code>2</code><button type="button">Copy</button></div>
+        </div></li>
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label">Click <b>Yes, that's it</b></p>
+          <p class="expect">Same MRI. <b>Belongs to: Radiology</b>, not registered to John or his department, which is fine.</p>
+        </div></li>
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label">"This is already reported": click <b>Add my note to INC…</b></p>
+          <p class="expect">Jane's ticket, its status, who reported it and when. Then the ticket card: note added, <b>John now follows it</b>.</p>
+        </div></li>
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label">John types:</p>
+          <div class="phrase"><code>show my tickets</code><button type="button">Copy</button></div>
+          <p class="expect">Jane's ticket is listed as <b>Reported by Jane Doe, you're following</b>.</p>
+        </div></li>
+    </ol>
+    <blockquote class="say">Shared equipment gets reported by everyone who walks past it. Instead of five duplicate tickets, the second
+      person adds what they saw to the first one and gets the same updates.</blockquote>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="sec-head"><span class="who desk">Service desk</span><h2>3 · The service desk works the ticket</h2><span class="time">1 min</span></div>
+    <ol class="steps">
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label">On the MRI incident: State = <b>In Progress</b>, Assigned to anyone in Imaging Engineering</p></div></li>
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label">Add an <b>Additional comment</b>, then Save:</p>
+          <div class="phrase"><code>Engineer on the way, ETA 30 minutes. Please keep the room clear.</code><button type="button">Copy</button></div>
+        </div></li>
+    </ol>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="sec-head"><span class="who jane">Jane</span><span class="who john">John</span><h2>4 · "Any update?"</h2><span class="time">1 min</span></div>
+    <ol class="steps">
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label"><span class="who jane">Jane · phone</span> types:</p>
+          <div class="phrase"><code>any update on the MRI?</code><button type="button">Copy</button></div>
+          <p class="expect">Status <b>In Progress</b>, the assignee and the latest note.</p>
+        </div></li>
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label"><span class="who john">John · desktop</span> types:</p>
+          <div class="phrase"><code>what's the latest on that MRI ticket?</code><button type="button">Copy</button></div>
+          <p class="expect">The same answer, because he follows it.</p>
+        </div></li>
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label">Optional, <span class="who john">John</span> types:</p>
+          <div class="phrase"><code>cancel it, it's working</code><button type="button">Copy</button></div>
+          <p class="expect">Only Jane, who reported it, can cancel; the agent offers to add John's note instead.</p>
+        </div></li>
+    </ol>
+    <blockquote class="say">Nobody opened ServiceNow or looked up a ticket number. They asked, and the agent read the ticket live.
+      Anything they ask to change is attempted and checked, and if ServiceNow's rules don't allow it, they're told so and a
+      note goes on the ticket.</blockquote>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="sec-head"><span class="who jane">Jane · phone</span><h2>5 · Jane finds a broken pump in the ED</h2><span class="time">2 min</span></div>
+    <ol class="steps">
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label">New conversation. Attach <b>tag-pump.jpg</b> and type:</p>
+          <div class="phrase"><code>Found this pump in the ED hallway, the door is cracked and it could free-flow</code><button type="button">Copy</button></div>
+        </div></li>
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label">Mobile or desktop? Reply:</p>
+          <div class="phrase"><code>1</code><button type="button">Copy</button></div>
+          <p class="expect">The photo's control number <b>CE-20457</b> matches exactly, so there's no "is this right?" step.
+            <b>Belongs to: Emergency Department</b>, not registered to Jane or his department; he can still report it and the ticket will say so.</p>
+        </div></li>
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label">Review, then submit: reply 1</p>
+          <p class="expect">"Could free-flow" is a <b>safety concern</b>: priority <b>1 - Critical</b>, take it out of service, tag it
+            <i>Do not use</i>. <b>Remove from service, then on-site repair</b>, handled by <b>Clinical Engineering</b>.</p>
+          <div class="phrase"><code>1</code><button type="button">Copy</button></div>
+        </div></li>
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label">Show the ticket in the service desk tab</p>
+          <p class="expect">Assignment group <b>Clinical Engineering</b>, priority 1, and the comment
+            <i>Ownership could not be confirmed: registered to Emergency Department, reported by Jane Doe…</i></p>
+        </div></li>
+    </ol>
+    <blockquote class="say">Anyone can report anything. When the reporter isn't the owner, the ticket says so instead of blocking them,
+      and the equipment's own support team gets it.</blockquote>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="sec-head"><span class="who john">John · desktop</span><h2>6 · Optional: John's laptop and a workstation his team supports</h2><span class="time">2 min</span></div>
+    <ol class="steps">
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label">New conversation (answer 2). John types:</p>
+          <div class="phrase"><code>my laptop screen is cracked</code><button type="button">Copy</button></div>
+          <p class="expect">His devices with <b>model, tag and serial</b>. Pick the laptop, confirm it, attach <b>cracked.jpg</b>.
+            Review shows <b>Ship to</b> and <b>Bill to</b>: a personal device is replaced, not repaired on site. Submit.</p>
+        </div></li>
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label">John types:</p>
+          <div class="phrase"><code>the reading room 2 workstation in radiology won't boot</code><button type="button">Copy</button></div>
+          <p class="expect">The confirmation says <b>supported by your group (Service Desk)</b>: department equipment his team looks after.</p>
+        </div></li>
+    </ol>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="sec-head"><h2>Close</h2><span class="time">20 sec</span></div>
+    <blockquote class="say">One agent for laptops and MRIs, on the phone or the desktop. It knows who you are and finds the equipment from
+      how you describe it. The right team gets it with the location, duplicates become followers, and "any update?" always
+      gets a live answer.</blockquote>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="sec-head"><h2>Reset afterwards</h2></div>
+    <ol class="steps">
+      <li class="step"><input type="checkbox" aria-label="Done">
+        <div class="body"><p class="label">Between runs: clear only the demo tickets</p>
+          <div class="phrase"><code>cd ~/ADK/hardware_replacement &amp;&amp; uv run --group seed python seed/sn_seed.py clear-tickets --yes</code><button type="button">Copy</button></div>
+          <p class="expect">Then click <b>Uncheck all</b> at the top.</p>
+        </div></li>
+    </ol>
+    <p class="note">Everything, including the users' agent memories: <code style="font-family:var(--mono)">sn_seed.py reset --yes --memory</code>, then <code style="font-family:var(--mono)">set</code> again.</p>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>If something goes wrong</h2></div>
+    <div class="table-wrap">
+      <table class="trouble">
+        <thead><tr><th>What you see</th><th>Fix</th></tr></thead>
+        <tbody>
+          <tr><td>The agent answers as <b>admin</b> or the wrong person</td><td>Delete and re-add the agent in Gemini Enterprise, then authorize in a window that isn't signed in to ServiceNow as admin</td></tr>
+          <tr><td>"ServiceNow is waking up"</td><td>The developer instance hibernated: open it in a browser, wait, retry</td></tr>
+          <tr><td>Red "unsupported content" box on the phone</td><td>That conversation was answered as desktop: start a new one and answer 1</td></tr>
+          <tr><td>The MRI isn't offered as "already reported" in scene 2</td><td>Scene 1's ticket must still be open (New, In Progress or On Hold)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  var KEY = "riverside-demo-checks-v1";
+  var steps = Array.prototype.slice.call(document.querySelectorAll(".step"));
+  var boxes = [];
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { saved = {}; }
+
+  steps.forEach(function (step, i) {
+    var box = step.querySelector('input[type="checkbox"]');
+    if (!box) return;
+    var id = step.getAttribute("data-id") || "step-" + i;
+    if (!box.id) box.id = "c-" + id;
+    box.dataset.key = id;
+    box.checked = !!saved[id];
+    step.classList.toggle("done", box.checked);
+    box.addEventListener("change", function () {
+      step.classList.toggle("done", box.checked);
+      save();
+      update();
+    });
+    boxes.push(box);
+  });
+
+  function save() {
+    var state = {};
+    boxes.forEach(function (b) { if (b.checked) state[b.dataset.key] = 1; });
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* private window: not remembered */ }
+  }
+  function update() {
+    var done = boxes.filter(function (b) { return b.checked; }).length;
+    document.getElementById("count").textContent = done + " / " + boxes.length + " done";
+    document.getElementById("meter").style.width = (boxes.length ? (100 * done / boxes.length) : 0) + "%";
+  }
+
+  var reset = document.getElementById("reset");
+  var armed = null;
+  reset.addEventListener("click", function () {
+    if (!armed) {
+      reset.textContent = "Click again to uncheck all";
+      reset.classList.add("warn");
+      armed = setTimeout(function () { reset.textContent = "Uncheck all"; reset.classList.remove("warn"); armed = null; }, 3000);
+      return;
+    }
+    clearTimeout(armed); armed = null;
+    reset.textContent = "Uncheck all"; reset.classList.remove("warn");
+    boxes.forEach(function (b) { b.checked = false; b.closest(".step").classList.remove("done"); });
+    save(); update();
+  });
+
+  document.querySelectorAll(".phrase button").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var code = btn.parentNode.querySelector("code");
+      var text = code.textContent;
+      function flash(label) {
+        btn.textContent = label; btn.classList.add("ok");
+        setTimeout(function () { btn.textContent = "Copy"; btn.classList.remove("ok"); }, 1400);
+      }
+      function selectIt() {
+        var r = document.createRange(); r.selectNodeContents(code);
+        var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+        flash("Press ⌘C");
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { flash("Copied"); }, selectIt);
+      } else {
+        selectIt();
+      }
+    });
+  });
+
+  update();
+})();
+</script>
+</body>
+</html>

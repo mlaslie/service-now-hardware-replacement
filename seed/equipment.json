@@ -1,0 +1,37 @@
+{
+  "_comment": "Shared and clinical equipment for a fictional hospital, laid out the way hospitals usually keep it in ServiceNow: each item is an alm_hardware asset owned by a department (not a person), at a room-level location, supported by a group (Clinical Engineering / biomed for patient-care devices, Imaging Engineering for imaging systems, the IT Service Desk for IT equipment in clinical areas). Clinical Engineering control numbers (CE-#####) are the asset tags. Missing model categories are added; ServiceNow allows one category per CI class, so the seed creates each item's configuration item (cmdb_ci_hardware) itself and links it to the asset, as a clinical device app would. Everything is created by `sn_seed.py set` and removed by `reset`.",
+  "site": {"name": "Riverside Medical Center", "street": "1200 Harbor Health Way", "city": "Kansas City",
+           "state": "MO", "zip": "64108", "country": "USA"},
+  "categories": [
+    {"name": "Imaging Equipment"},
+    {"name": "Patient Care Equipment"}
+  ],
+  "groups": ["Imaging Engineering", "Clinical Engineering", "Service Desk"],
+  "departments": ["Radiology", "Emergency Department", "Intensive Care Unit", "Medical-Surgical 3 West"],
+  "equipment": [
+    {"asset_tag": "CE-10421", "manufacturer": "GE HealthCare", "model": "SIGNA Explorer 1.5T MRI", "model_number": "SIGNA-EXP-15T",
+     "category": "Imaging Equipment", "serial": "GEMR15E0421", "department": "Radiology", "room": "Radiology - MRI 1 (Room 104)",
+     "support_group": "Imaging Engineering", "cost": 1450000, "age_days": 1400, "warranty_years": 5},
+    {"asset_tag": "CE-10388", "manufacturer": "Siemens Healthineers", "model": "SOMATOM go.Up CT Scanner", "model_number": "SOMATOM-GOUP",
+     "category": "Imaging Equipment", "serial": "SMCT0388GU", "department": "Radiology", "room": "Radiology - CT 2 (Room 110)",
+     "support_group": "Imaging Engineering", "cost": 890000, "age_days": 900, "warranty_years": 5},
+    {"asset_tag": "CE-10512", "manufacturer": "GE HealthCare", "model": "AMX Navigate Portable X-ray", "model_number": "AMX-NAV",
+     "category": "Imaging Equipment", "serial": "GEAMX10512N", "department": "Radiology", "room": "Radiology - Portable X-ray Alcove",
+     "support_group": "Imaging Engineering", "cost": 165000, "age_days": 600, "warranty_years": 3},
+    {"asset_tag": "CE-10577", "manufacturer": "Philips", "model": "EPIQ Elite Ultrasound", "model_number": "EPIQ-ELITE",
+     "category": "Imaging Equipment", "serial": "PHEPQ10577E", "department": "Radiology", "room": "Radiology - Ultrasound 3 (Room 118)",
+     "support_group": "Imaging Engineering", "cost": 210000, "age_days": 1100, "warranty_years": 3},
+    {"asset_tag": "610204", "manufacturer": "Dell", "model": "Precision 3680 Reading Workstation", "model_number": "PREC-3680",
+     "category": "Computer", "serial": "DPR3680RW2", "department": "Radiology", "room": "Radiology - Reading Room 2",
+     "support_group": "Service Desk", "cost": 6800, "age_days": 500, "warranty_years": 3},
+    {"asset_tag": "CE-20457", "manufacturer": "BD", "model": "Alaris 8015 PC Unit Infusion Pump", "model_number": "8015",
+     "category": "Patient Care Equipment", "serial": "BD8015PC0457", "department": "Emergency Department", "room": "Emergency Department - Bay 7",
+     "support_group": "Clinical Engineering", "cost": 4200, "age_days": 1500, "warranty_years": 2},
+    {"asset_tag": "CE-22010", "manufacturer": "Philips", "model": "IntelliVue MX450 Patient Monitor", "model_number": "MX450",
+     "category": "Patient Care Equipment", "serial": "PHMX45022010", "department": "Intensive Care Unit", "room": "ICU - Bed 4",
+     "support_group": "Clinical Engineering", "cost": 18500, "age_days": 800, "warranty_years": 3},
+    {"asset_tag": "CE-31120", "manufacturer": "Hillrom", "model": "Centrella Smart+ Hospital Bed", "model_number": "P7900",
+     "category": "Patient Care Equipment", "serial": "HRCS31120SP", "department": "Medical-Surgical 3 West", "room": "3 West - Room 312",
+     "support_group": "Clinical Engineering", "cost": 27000, "age_days": 2000, "warranty_years": 5}
+  ]
+}

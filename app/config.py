@@ -40,7 +40,19 @@ SERVICE_URL = _env("SERVICE_URL", "http://localhost:8080").rstrip("/")
 # ServiceNow instance. The agent calls it with each signed-in user's own token.
 SN_INSTANCE_URL = _env("SN_INSTANCE_URL", "https://INSTANCE.service-now.com")
 
+# Tables searched for devices and equipment. Hospitals that keep medical devices
+# in their own table (e.g. from a clinical device app) add it here.
+ASSET_TABLES = [t.strip() for t in _env("ASSET_TABLES", "alm_hardware").split(",") if t.strip()]
+
+# Model categories that mark medical equipment: repaired on site by its support
+# group rather than replaced and shipped.
+CLINICAL_CATEGORIES = [c.strip() for c in _env(
+    "CLINICAL_CATEGORIES",
+    "Imaging Equipment,Patient Care Equipment,Medical Equipment,Medical Device,Clinical Device,Laboratory Equipment",
+).split(",") if c.strip()]
+
 # How this company's asset tags look, for the photo model. Plain words.
-ASSET_TAG_HINT = _env("ASSET_TAG_HINT", "a company sticker with a barcode and a short number, e.g. 123456 or IT-01234")
+ASSET_TAG_HINT = _env("ASSET_TAG_HINT", "a sticker with a barcode and a short number: e.g. 123456 on IT "
+                      "devices, or a Clinical Engineering control number like CE-10421 on medical equipment")
 
 APP_NAME = "hardware_replacement"

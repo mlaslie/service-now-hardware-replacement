@@ -15,7 +15,9 @@ few taps. It runs on **Cloud Run**, is served to a **Gemini Enterprise** app ove
 **A2UI v0.8** cards (buttons), reads photos with **gemini-3.8-flash**, and files and manages
 **ServiceNow incidents as the signed-in employee**, using their own ServiceNow OAuth token.
 
-Status: working end to end in Gemini Enterprise for `john.doe`. Create, list, status, notes,
+Status: working end to end in Gemini Enterprise for `john.doe`. Since revision 00022 (now 00023) it also
+covers hospital shared and clinical equipment (MRI, pumps, beds...) for the demo hospital "Riverside
+Medical Center": see `docs/BACKLOG.md` section F and `demo/DEMO.html`. Create, list, status, notes,
 note, ship-to change, urgency, reopen and cancel are all tested by hand. The GE mobile app works
 in text mode (first reply asks mobile vs desktop).
 
@@ -43,7 +45,7 @@ in text mode (first reply asks mobile vs desktop).
 ### Google Cloud (`PROJECT_ID`, number `PROJECT_NUMBER`, region `us-central1`)
 | Resource | Name / ID | Notes |
 |---|---|---|
-| Cloud Run service | `hardware-replacement-agent` | URL `https://hardware-replacement-agent-PROJECT_NUMBER.us-central1.run.app` (the card advertises this form). Latest revision `00019`. `--no-allow-unauthenticated`, min 1 instance, concurrency 4, 1 GiB. |
+| Cloud Run service | `hardware-replacement-agent` | URL `https://hardware-replacement-agent-PROJECT_NUMBER.us-central1.run.app` (the card advertises this form). Latest revision `00023`. `--no-allow-unauthenticated`, min 1 instance, concurrency 4, 1 GiB. |
 | Runtime service account | `hardware-agent@PROJECT_ID.iam.gserviceaccount.com` | `aiplatform.user`, `logging.logWriter`, `storage.objectUser` on the bucket |
 | Cloud Run invoker | `service-PROJECT_NUMBER@gcp-sa-discoveryengine.iam.gserviceaccount.com` | `run.invoker` on the service only. This is how Gemini Enterprise calls it. |
 | Agent Runtime "state engine" | `projects/PROJECT_NUMBER/locations/us-central1/reasoningEngines/ENGINE_ID` (`hardware-replacement-state`) | **Runs no code.** Hosts managed Sessions + Memory Bank (topics: USER_PREFERENCES, delivery_and_contact, hardware_history). |
@@ -80,10 +82,10 @@ agent's authorization means deleting and re-adding the agent.
 | Account | Purpose / state |
 |---|---|
 | `admin` | Instance admin. **Don't be logged in as admin when authorizing the agent**; see problem 12. |
-| `john.doe` | The human test user (email `john.doe@example.com`, name "John Doe", Kansas City location). Roles `itil`, `asset`, `sn_incident_write`, `snc_platform_rest_api_access`, `rest_service`. MacBook Air 13" asset tag `123456`, serial `FCPJ2GJTHC`. |
+| `john.doe` | Test user "John Doe" (`john.doe@example.com`), IT Systems Analyst, department **IT**, member of the **Service Desk** group, location Riverside Medical Center. Roles `itil`, `asset`, `sn_incident_write`, `snc_platform_rest_api_access`, `rest_service`. MacBook Air 13" asset tag `123456`, serial `FCPJ2GJTHC`. |
 | `OWNER` | Created with **Identity type = AI** and **Internal Integration User** checked: **cannot log in interactively**. Don't use it. |
 | `inventory_admin` | Demo user; unused |
-| `jane.doe` | To be created by the seed script (`jane.doe@example.com`); needs **Set Password** manually |
+| `jane.doe` | Test user "Jane Doe" (`jane.doe@example.com`), MRI Technologist, department **Radiology**, created by the seed script; needs **Set Password** manually. Same roles as john.doe. |
 
 | OAuth client (Application Registry) | Use |
 |---|---|
@@ -118,6 +120,13 @@ Gemini Enterprise (2H-2026) ──A2A message/stream (SSE)──▶ Cloud Run: h
 ```
 
 Key design rules:
+- **Device kinds** (`servicenow._kind`): personal (assigned to a person: replaced and shipped), shared
+  (department IT equipment) and clinical (model category in `CLINICAL_CATEGORIES`): both repaired on site
+  by the asset's `support_group`, at its `location`, billed to its cost center.
+- **Confirm the device** (yes/no card) whenever it was picked, typed, described or fuzzy-matched; an
+  exact photo match of the tag skips it. Ownership (`tools._relation`) is shown and noted, never enforced.
+- **Followers**: a second reporter of equipment with an open ticket joins it via the watch list.
+  Every ticket query is `caller_id = me OR watch_list LIKE me`; only the caller can cancel.
 - **Sessions keyed by A2A `contextId`** (user_id = `A2A_USER_<contextId>`), never by identity.
   Identity rides in state, refreshed every turn. Memory is keyed by email.
 - **ServiceNow token**: request-scoped `ContextVar`, never in state, memory or logs.
@@ -145,7 +154,8 @@ uv run --group seed pytest                      # everything: 48 tests
 - Agent card JSON: `curl -s -H "Authorization: Bearer $(gcloud auth print-identity-token)" <service URL>/.well-known/agent-card.json`
 - Local A2A client: `uv run python scripts/chat.py --url <service URL> --token "$(gcloud auth print-identity-token)" --user-token <SN token>`.
   Without a user token the agent answers as anonymous, which is expected.
-- Seed tool (see README): `uv run --group seed python seed/sn_seed.py login | set <users.json> | report | reset [--user X] [--yes] [--memory]`.
+- Seed tool (see README): `uv run --group seed python seed/sn_seed.py login | set <users.json> | report | clear-tickets [--yes] | reset [--user X] [--yes] [--memory]`.
+  `set` also creates the hospital equipment in `seed/equipment.json`. Between demo runs use `clear-tickets --yes`.
   Run it from the repo root (running it from `~` fails).
 
 ---
@@ -174,6 +184,9 @@ uv run --group seed pytest                      # everything: 48 tests
 | 18 | Ship-to "changed" but not changed; reopen request silently dropped | Only a note was added; no tool for state | Generic `update_ticket` with attempt, verify, then note-and-tell |
 | 19 | Laptops treated as desktops | Demo data files laptops under "Computer" | Model-name heuristics (`_device_type`) |
 | 20 | Spaces in a copied client ID | Copy/paste | Credentials are stripped on read |
+| 21 | Seed: creating a model category with `cmdb_ci_class=cmdb_ci_hardware` → 403 "Operation Failed" | ServiceNow allows one model category per CI class ("Hardware" already has it); a made-up class name is accepted but no table exists | New equipment categories get no CI class; the seed creates each CI (`cmdb_ci_hardware`) and links it |
+| 22 | Equipment asset's `ci` stays empty after setting it | ServiceNow clears `alm_asset.ci` when the model category has no CI class; the CI keeps its `asset` reference | `servicenow._link_cis` finds the CI via `cmdb_ci.asset` |
+| 23 | Seed summary said "0 pieces of equipment" | An edit dropped the line recording equipment in the manifest | Restored, and `set` re-records seed-marked equipment it finds; test added |
 
 ---
 
@@ -221,4 +234,4 @@ The prioritized backlog is in `docs/BACKLOG.md`.
 - Skills used: `a2a-cloud-run-gemini-enterprise`, `a2ui-gemini-enterprise` (in `~/.claude/skills`); their
   `references/lessons-learned.md` has the measured GE/A2A facts this project relies on.
 - `~/ADK/adk-a2a-agent-runtime-template`: the A2A-on-Agent-Runtime template the probe was built from.
-- `demo/DEMO.md`: the 5-minute demo script.
+- `demo/DEMO.html`: the 5-minute demo script.

@@ -13,18 +13,31 @@ import pytest
 from app import cards, memory, servicenow, tools, vision
 from app.vision import PhotoFindings
 
-JANE, JOHN = "u_joe", "u_matt"
+import re
+
+JANE, JOHN, ANA = "u_joe", "u_matt", "u_ana"
+RADIOLOGY, IT, ED = "d_rad", "d_it", "d_ed"
+IMAGING, CLINICAL_ENG, SERVICE_DESK = "g_img", "g_ce", "g_sd"
+HOSPITAL = "Riverside Medical Center"
+NAMES = {RADIOLOGY: "Radiology", IT: "IT", ED: "Emergency Department",
+         IMAGING: "Imaging Engineering", CLINICAL_ENG: "Clinical Engineering", SERVICE_DESK: "Service Desk",
+         JANE: "Jane Doe", JOHN: "John Doe", ANA: "Ana Ruiz"}
 
 
-def _hw(sys_id, tag, serial, model, maker, owner, category="Computer"):
+def _hw(sys_id, tag, serial, model, maker, owner="", category="Computer", dept="", location="", group=""):
     return {"sys_id": sys_id, "asset_tag": tag, "serial_number": serial, "display_name": model,
             "model.display_name": model, "model.manufacturer.name": maker, "model_category.name": category,
             "purchase_date": "2025-01-15", "warranty_expiration": "2028-01-15", "install_status": "1",
-            "assigned_to": {"value": owner}, "ci": {"value": f"ci_{sys_id}"}}
+            "assigned_to": {"value": owner}, "assigned_to.name": NAMES.get(owner, ""), "ci": {"value": f"ci_{sys_id}"},
+            "department": {"value": dept}, "department.name": NAMES.get(dept, ""),
+            "location": {"value": f"loc_{sys_id}" if location else ""}, "location.name": location,
+            "support_group": {"value": group}, "support_group.name": NAMES.get(group, ""),
+            "cost_center.name": NAMES.get(dept, ""), "managed_by": {"value": ""}}
 
 
 class FakeTableAPI:
-    """The alm_hardware, incident and attachment calls servicenow.py makes."""
+    """The asset, incident and attachment calls servicenow.py makes, with encoded
+    queries (^, ^OR, =, !=, LIKE, IN, ISEMPTY) evaluated like ServiceNow does."""
 
     def __init__(self):
         self.tables = {
@@ -32,46 +45,71 @@ class FakeTableAPI:
                 _hw("a1", "123456", "FCPJ2GJTHC", "MacBook Air 13", "Apple", JANE),
                 _hw("a2", "200001", "CN0ABC123", "Dell P2723DE", "Dell", JANE, "Computer Monitor"),
                 _hw("a3", "IT-300001", "PF4XYZ99", "ThinkPad X1 Carbon Gen 11", "Lenovo", JOHN),
+                _hw("a4", "300002", "C02ANA0001", "MacBook Pro 14", "Apple", ANA, dept=ED),
+                _hw("a10", "CE-10421", "GEMR15E0421", "SIGNA Explorer 1.5T MRI", "GE HealthCare",
+                    category="Imaging Equipment", dept=RADIOLOGY, group=IMAGING,
+                    location=f"{HOSPITAL} - Radiology - MRI Suite 1 (Room 104)"),
+                _hw("a11", "CE-20457", "BD8015PC0457", "Alaris 8015 PC Unit Infusion Pump", "BD",
+                    category="Patient Care Equipment", dept=ED, group=CLINICAL_ENG,
+                    location=f"{HOSPITAL} - Emergency Department - Bay 7"),
+                _hw("a12", "610204", "DPR3680RW2", "Precision 3680 Reading Workstation", "Dell",
+                    dept=RADIOLOGY, group=SERVICE_DESK, location=f"{HOSPITAL} - Radiology - Reading Room 2"),
             ],
             "incident": [],
+            # The pump's category has no CI class, so ServiceNow keeps the link on the CI only.
+            "cmdb_ci": [{"sys_id": "ci_a11", "asset": {"value": "a11"}}],
         }
+        self.tables["alm_hardware"][5]["ci"] = {"value": ""}
         self.numbers = itertools.count(10001)
 
-    @staticmethod
-    def _match(row, query):
+    _COND = re.compile(r"^([a-z_.]+?)(ISEMPTY|ISNOTEMPTY|!=|LIKE|IN|=)(.*)$")
+
+    def _test(self, row, cond):
+        field, op, want = self._COND.match(cond).groups()
+        have = str(servicenow._value(row.get(field, "")))
+        return {"ISEMPTY": not have, "ISNOTEMPTY": bool(have), "!=": have != want, "=": have == want,
+                "LIKE": want.lower() in have.lower(), "IN": have in want.split(",")}[op]
+
+    def _match(self, row, query):
+        clauses: list[list[str]] = []
         for cond in query.split("^"):
             if not cond or cond.startswith("ORDERBY"):
                 continue
-            for op in ("!=", "IN", "="):
-                if op in cond:
-                    key, want = cond.split(op, 1)
-                    have = servicenow._value(row.get(key, ""))
-                    ok = {"!=": have != want, "IN": have in want.split(","), "=": have == want}[op]
-                    if not ok:
-                        return False
-                    break
-        return True
+            if cond.startswith("OR") and clauses:
+                clauses[-1].append(cond[2:])
+            else:
+                clauses.append([cond])
+        return all(any(self._test(row, c) for c in alts) for alts in clauses)
+
+    def _row(self, table, sys_id):
+        return next(r for r in self.tables[table] if r["sys_id"] == sys_id)
 
     async def __call__(self, method, path, *, params=None, json=None, **_):
         params = params or {}
-        table = path.split("/api/now/table/")[-1].split("/")[0]
+        parts = path.split("/api/now/table/")[-1].split("/")
+        table, sys_id = parts[0], (parts[1] if len(parts) > 1 else "")
+        if method == "GET" and sys_id:
+            return {"result": dict(self._row(table, sys_id))}
         if method == "GET":
             rows = [r for r in self.tables[table] if self._match(r, params.get("sysparm_query", ""))]
-            return {"result": rows[: int(params.get("sysparm_limit", 1000))]}
+            return {"result": [dict(r) for r in rows[: int(params.get("sysparm_limit", 1000))]]}
         if method == "POST" and table == "incident":
             impact, urgency = int(json.get("impact", 2)), int(json.get("urgency", 2))
             row = {**json, "sys_id": f"i{len(self.tables['incident']) + 1}",
-                   "number": f"INC00{next(self.numbers)}", "state": "1",
-                   "priority": str(impact + urgency - 1), "cmdb_ci": {"value": json.get("cmdb_ci", "")}}
+                   "number": f"INC00{next(self.numbers)}", "state": "1", "sys_created_on": "2026-09-26 10:00:00",
+                   "priority": str(impact + urgency - 1), "cmdb_ci": {"value": json.get("cmdb_ci", "")},
+                   "caller_id": {"value": json["caller_id"]}, "caller_id.name": NAMES.get(json["caller_id"], ""),
+                   "assignment_group": {"value": json.get("assignment_group", "")},
+                   "assignment_group.name": NAMES.get(json.get("assignment_group", ""), ""),
+                   "watch_list": json.get("watch_list", ""), "comments_log": []}
             self.tables["incident"].append(row)
             return {"result": dict(row)}
         if method == "PATCH":
-            sys_id = path.rsplit("/", 1)[-1]
-            row = next(r for r in self.tables["incident"] if r["sys_id"] == sys_id)
+            row = self._row(table, sys_id)
             comments = json.get("comments")
             row.update({k: v for k, v in json.items() if k != "comments"})
             if comments:
-                row.setdefault("comments_log", []).append(comments)
+                row["comments_log"].append(comments)
             return {"result": dict(row)}
         return {"result": {}}
 
@@ -96,10 +134,17 @@ def sn(monkeypatch):
     return api
 
 
+PROFILES = {
+    JANE: {"name": "Jane Doe", "email": "jane.doe@example.com", "title": "MRI Technologist",
+          "department": "Radiology", "department_id": RADIOLOGY, "group_ids": []},
+    JOHN: {"name": "John Doe", "email": "john.doe@example.com", "title": "IT Systems Analyst",
+           "department": "IT", "department_id": IT, "group_ids": [SERVICE_DESK]},
+}
+
+
 def ctx_for(user=JANE, session="sess-1"):
-    profile = {"sys_id": user, "name": "Jane Doe", "email": "jane.doe@example.com",
-               "location": "Kansas City", "location_address": "6304 Northwest Barry Road",
-               "cost_center": "Sales", "department": "Sales"}
+    profile = {"sys_id": user, "location": HOSPITAL, "location_address": "1200 Harbor Health Way",
+               "cost_center": "Radiology", **PROFILES[user]}
     return SimpleNamespace(state={"end_user": {"verified": True, "profile": profile}},
                            session=SimpleNamespace(id=session))
 
@@ -140,6 +185,13 @@ def card_text(ctx):
     return cards.to_text(ctx.state[tools.CARD_KEY])[0]
 
 
+async def pick(ctx, tag):
+    """Choose a device from the list or by typing it, then say yes to "Is this the right device?"."""
+    result = await tools.select_device(tag, ctx)
+    assert result["step"] == "confirm_device", result
+    return await tools.confirm_device(True, ctx)
+
+
 # --- typed identification ------------------------------------------------------------
 
 
@@ -154,8 +206,10 @@ async def test_2_start_shows_only_my_devices(sn):
 async def test_3_typed_asset_tag(sn, typed):
     ctx = ctx_for()
     result = await tools.select_device(typed, ctx)
-    assert result["step"] == "describe_issue"
+    assert result["step"] == "confirm_device"
     assert draft(ctx)["device"]["asset_tag"] == "123456"
+    assert "Is this the right device?" in card_text(ctx) and "FCPJ2GJTHC" in card_text(ctx)
+    assert (await tools.confirm_device(True, ctx))["step"] == "describe_issue"
 
 
 async def test_3_typed_asset_tag_is_case_insensitive(sn):
@@ -178,20 +232,35 @@ async def test_5_unknown_tag_asks_for_a_label_photo(sn):
     assert "device" not in (ctx.state.get("draft") or {})
 
 
-async def test_6_someone_elses_device_is_flagged(sn):
+async def test_6_someone_elses_device_can_be_reported_and_says_so(sn):
     ctx = ctx_for()
-    await tools.select_device("IT-300001", ctx)
+    await pick(ctx, "IT-300001")
+    assert draft(ctx)["device"]["relation"] == "unconfirmed"
+    assert "John Doe, not you" in draft(ctx)["device"]["relation_text"]
     result = await tools.set_issue("wont_power_on", "Won't turn on", "normal", ctx)
     assert result["step"] == "review"
-    assert any("assigned to someone else" in w for w in result["warnings"])
+    assert "Belongs to:** John Doe, not you" in card_text(ctx) and card_text(ctx).count("not you") == 1
+    await tools.submit_ticket(ctx)
+    ticket = sn.tables["incident"][0]
+    assert ticket["watch_list"] == JOHN  # the owner hears about it
+    assert "Ownership could not be confirmed: assigned to John Doe" in ticket["description"]
 
 
-async def test_typed_tag_and_problem_in_one_go_reaches_review(sn):
+async def test_typed_tag_and_problem_in_one_go_confirms_then_reviews(sn):
     ctx = ctx_for()
     await tools.start_request(ctx)
     await tools.select_device("123456", ctx)
     result = await tools.set_issue("wont_power_on", "Dead since this morning", "high", ctx)
+    assert result["step"] == "confirm_device"  # the problem is kept while they check the device
+    result = await tools.confirm_device(True, ctx)
     assert result["step"] == "review" and result["priority"] == "2 - High"
+
+
+async def test_saying_no_to_the_device_goes_back_to_the_list(sn):
+    ctx = ctx_for()
+    await tools.select_device("123456", ctx)
+    result = await tools.confirm_device(False, ctx)
+    assert result["step"] == "choose_device" and "device" not in draft(ctx)
 
 
 # --- photos ---------------------------------------------------------------------------
@@ -217,9 +286,9 @@ async def test_9_maker_label_without_serial_matches_my_device_by_model(sn, monke
     ctx = ctx_for()
     send_photos(ctx, monkeypatch, label(manufacturer="Apple", model="MacBook Air", part_number="MGN63LL/A"))
     result = await tools.analyze_photos(ctx)
-    assert result["step"] == "describe_issue"
+    assert result["step"] == "confirm_device"  # a guess, so the user checks it
     assert draft(ctx)["device"]["asset_tag"] == "123456"
-    assert "by its model" in draft(ctx)["match_note"]  # shown on the review card to confirm
+    assert "by its model" in card_text(ctx)
 
 
 async def test_9_unknown_model_still_offers_my_devices(sn, monkeypatch):
@@ -243,7 +312,7 @@ async def test_10_damage_with_sticker_fills_device_and_evidence(sn, monkeypatch)
 
 async def test_11_damage_photo_of_a_different_make(sn, monkeypatch):
     ctx = ctx_for()
-    await tools.select_device("123456", ctx)
+    await pick(ctx, "123456")
     await tools.set_issue("cracked_screen", "Cracked", "normal", ctx)
     send_photos(ctx, monkeypatch, damage(manufacturer="Lenovo", model="ThinkPad", device_type="laptop"))
     result = await tools.analyze_photos(ctx)
@@ -268,7 +337,7 @@ async def test_13_label_serial_differs_from_inventory(sn, monkeypatch):
 
 async def test_14_photo_of_another_of_my_devices_offers_a_switch(sn, monkeypatch):
     ctx = ctx_for()
-    await tools.select_device("123456", ctx)
+    await pick(ctx, "123456")
     await tools.set_issue("wont_power_on", "Dead", "normal", ctx)
     send_photos(ctx, monkeypatch, label(asset_tag="200001"))
     result = await tools.analyze_photos(ctx)
@@ -276,14 +345,15 @@ async def test_14_photo_of_another_of_my_devices_offers_a_switch(sn, monkeypatch
     assert "Use Dell P2723DE" in card_text(ctx)
 
     option = next(o for o in cards.to_text(ctx.state[tools.CARD_KEY])[1] if o["label"].startswith("Use "))
-    result = await tools.select_device(option["context"]["asset_tag"], ctx)
+    await tools.select_device(option["context"]["asset_tag"], ctx)
+    result = await tools.confirm_device(True, ctx)
     assert draft(ctx)["device"]["asset_tag"] == "200001"
     assert not any("shows asset" in w for w in result["warnings"])
 
 
 async def test_15_unreadable_photo_leaves_the_draft_alone(sn, monkeypatch):
     ctx = ctx_for()
-    await tools.select_device("123456", ctx)
+    await pick(ctx, "123456")
     before = dict(draft(ctx))
     send_photos(ctx, monkeypatch, RuntimeError("model failed"))
     result = await tools.analyze_photos(ctx)
@@ -323,7 +393,7 @@ async def test_19_device_not_in_inventory_is_filed_without_a_ci(sn, monkeypatch)
 
 
 async def _file(ctx, tag="123456"):
-    await tools.select_device(tag, ctx)
+    await pick(ctx, tag)
     await tools.set_issue("wont_power_on", "Dead", "normal", ctx)
     return await tools.submit_ticket(ctx)
 
@@ -332,7 +402,8 @@ async def test_submit_links_the_device_and_the_caller(sn):
     result = await _file(ctx_for())
     ticket = sn.tables["incident"][0]
     assert result["status"] == "submitted"
-    assert ticket["caller_id"] == JANE and ticket["cmdb_ci"] == {"value": "ci_a1"}
+    assert ticket["caller_id"] == {"value": JANE} and ticket["cmdb_ci"] == {"value": "ci_a1"}
+    assert "Ownership" not in ticket["description"]  # nothing to explain for your own device
 
 
 async def test_submit_twice_files_once(sn):
@@ -344,7 +415,7 @@ async def test_submit_twice_files_once(sn):
 
 async def test_retried_turn_finds_the_ticket_it_already_filed(sn):
     ctx = ctx_for()
-    await tools.select_device("123456", ctx)
+    await pick(ctx, "123456")
     await tools.set_issue("wont_power_on", "Dead", "normal", ctx)
     saved = dict(draft(ctx))
     first = await tools.submit_ticket(ctx)
@@ -383,7 +454,7 @@ async def test_typed_problem_after_a_filed_request_starts_a_new_one(sn):
 
 async def test_required_photo_blocks_submit(sn):
     ctx = ctx_for()
-    await tools.select_device("123456", ctx)
+    await pick(ctx, "123456")
     await tools.set_issue("cracked_screen", "Cracked", "normal", ctx)
     result = await tools.submit_ticket(ctx)
     assert result["step"] == "photo" and not sn.tables["incident"]
@@ -405,6 +476,8 @@ async def test_18_misread_serial_matches_my_device(sn, monkeypatch, read):
 async def test_typed_serial_with_a_typo_matches_and_says_so(sn):
     ctx = ctx_for()
     await tools.select_device("FCPJ2GJ7HC", ctx)
+    assert "by its serial number" in card_text(ctx)
+    await tools.confirm_device(True, ctx)
     result = await tools.set_issue("wont_power_on", "Dead", "normal", ctx)
     assert draft(ctx)["device"]["asset_tag"] == "123456"
     assert any("by its serial number" in w for w in result["warnings"])
@@ -412,20 +485,20 @@ async def test_typed_serial_with_a_typo_matches_and_says_so(sn):
 
 async def test_exact_match_has_no_match_note(sn):
     ctx = ctx_for()
-    await tools.select_device("123456", ctx)
+    await pick(ctx, "123456")
     result = await tools.set_issue("wont_power_on", "Dead", "normal", ctx)
     assert not any("Matched to" in w for w in result["warnings"])
 
 
 async def test_fuzzy_match_never_reaches_someone_elses_device(sn):
-    ctx = ctx_for()  # Jane; PF4XYZ99 belongs to John
+    ctx = ctx_for()  # Jane; PF4XYZ99 belongs to John, outside Jane's department
     result = await tools.select_device("PF4XYZ98", ctx)
     assert result["status"] == "not_found"
 
 
 async def test_fuzzy_match_does_not_replace_a_chosen_device(sn, monkeypatch):
     ctx = ctx_for()
-    await tools.select_device("200001", ctx)
+    await pick(ctx, "200001")
     send_photos(ctx, monkeypatch, label(serial_number="FCPJ2GJ7HC"))
     await tools.analyze_photos(ctx)
     assert draft(ctx)["device"]["asset_tag"] == "200001" and "suggested_device" not in draft(ctx)
@@ -439,3 +512,147 @@ def test_match_own_asset_needs_a_single_candidate():
     assert tools.match_own_asset(macs, model="MacBook Air 15")[0]["asset_tag"] == "2"
     assert tools.match_own_asset(macs, model="MacBook Air 15", manufacturer="Dell") == (None, "")
     assert tools.match_own_asset(macs, identifier="C02") == (None, "")  # too short to guess
+
+
+# --- hospital equipment ---------------------------------------------------------------
+
+
+async def _report_mri(ctx):
+    await pick(ctx, "CE-10421")
+    await tools.set_issue("error_alarm", "Gradient coil error on the console", "normal", ctx)
+    await tools.skip_photo(ctx)
+    return await tools.submit_ticket(ctx)
+
+
+async def test_department_equipment_by_tag(sn):
+    ctx = ctx_for(JANE)
+    result = await tools.select_device("ce-10421", ctx)
+    assert result["step"] == "confirm_device" and result["belongs_to"] == "Radiology (your department)"
+    text = card_text(ctx)
+    assert "MRI Suite 1 (Room 104)" in text and "GEMR15E0421" in text
+    result = await tools.confirm_device(True, ctx)
+    assert result["step"] == "describe_issue"
+    assert "Error message or alarm" in card_text(ctx) and "Cracked" not in card_text(ctx)  # equipment choices
+
+
+async def test_department_equipment_is_routed_and_located(sn):
+    ctx = ctx_for(JANE)
+    await pick(ctx, "CE-10421")
+    await tools.set_issue("error_alarm", "Gradient coil error on the console", "normal", ctx)
+    result = await tools.skip_photo(ctx)
+    assert result["step"] == "review"
+    text = card_text(ctx)
+    assert "**Service:** On-site repair" in text and "**Handled by:** Imaging Engineering" in text
+    assert "Ship to" not in text
+    await tools.submit_ticket(ctx)
+    ticket = sn.tables["incident"][0]
+    assert ticket["assignment_group"] == {"value": IMAGING} and ticket["location"] == "loc_a10"
+    assert ticket["cmdb_ci"] == {"value": "ci_a10"}
+    assert ticket["short_description"].endswith("MRI Suite 1 (Room 104)")
+    assert "Department equipment (Radiology); the reporter is in this department" in ticket["description"]
+    assert not ticket["comments_log"]  # nothing for the desk to sort out
+
+
+async def test_find_equipment_by_what_people_call_it(sn):
+    ctx = ctx_for(JANE)
+    result = await tools.find_device("the MRI in room 104", ctx)
+    assert result["step"] == "confirm_device" and draft(ctx)["device"]["asset_tag"] == "CE-10421"
+
+
+async def test_vague_description_offers_the_matches(sn):
+    ctx = ctx_for(JANE)
+    result = await tools.find_device("radiology", ctx)
+    assert result["step"] == "choose_device"
+    assert {m["asset_tag"] for m in result["matches"]} == {"CE-10421", "610204"}
+
+
+async def test_equipment_elsewhere_is_found_and_ownership_noted(sn):
+    ctx = ctx_for(JANE)  # Radiology, reporting an ED pump
+    result = await tools.find_device("infusion pump in ED bay 7", ctx)
+    assert result["step"] == "confirm_device" and draft(ctx)["device"]["asset_tag"] == "CE-20457"
+    assert draft(ctx)["device"]["relation"] == "unconfirmed"
+    await tools.confirm_device(True, ctx)
+    await tools.set_issue("damaged", "Door latch snapped off", "normal", ctx)
+    await tools.skip_photo(ctx)
+    await tools.submit_ticket(ctx)
+    ticket = sn.tables["incident"][0]
+    assert ticket["assignment_group"] == {"value": CLINICAL_ENG}
+    assert ticket["cmdb_ci"] == {"value": "ci_a11"}  # found through the CI's asset reference
+    assert "Ownership could not be confirmed: registered to Emergency Department" in ticket["comments_log"][0]
+
+
+async def test_equipment_my_group_supports(sn):
+    ctx = ctx_for(JOHN)  # IT, member of Service Desk
+    await tools.select_device("610204", ctx)
+    assert draft(ctx)["device"]["relation"] == "group"
+    assert "supported by your group (Service Desk)" in card_text(ctx)
+    assert draft(ctx)["device"]["kind"] == "shared"
+
+
+async def test_nothing_found_asks_for_the_tag(sn):
+    result = await tools.find_device("the thing", ctx_for(JANE))
+    assert result["status"] == "not_found"
+
+
+async def test_safety_concern_is_critical_and_says_what_to_do(sn):
+    ctx = ctx_for(JANE)
+    await pick(ctx, "CE-10421")
+    result = await tools.set_issue("safety_concern", "Table moved on its own with a patient on it", "normal", ctx)
+    assert result["step"] == "review"  # no photo step for a safety concern
+    assert result["priority"] == "1 - Critical"
+    assert "take it out of service" in card_text(ctx).lower()
+    await tools.submit_ticket(ctx)
+    assert "SAFETY CONCERN" in sn.tables["incident"][0]["description"]
+
+
+async def test_second_reporter_joins_the_open_ticket_and_gets_updates(sn):
+    jane = ctx_for(JANE)
+    first = await _report_mri(jane)
+    john = ctx_for(JOHN, session="sess-2")
+    await tools.select_device("CE-10421", john)
+    result = await tools.confirm_device(True, john)
+    assert result["step"] == "already_reported" and result["open_tickets"][0]["number"] == first["ticket"]
+    assert "Reported by Jane Doe" in card_text(john)
+
+    result = await tools.follow_ticket(first["ticket"], john)
+    assert result["following"] is True and len(sn.tables["incident"]) == 1
+    assert sn.tables["incident"][0]["watch_list"] == JOHN
+    assert "Also reported by John Doe" in sn.tables["incident"][0]["comments_log"][-1]
+
+    listed = await tools.list_my_tickets(john)
+    assert listed["tickets"][0]["number"] == first["ticket"]
+    assert "you're following" in card_text(john)
+    assert (await tools.get_ticket(first["ticket"], john))["ticket"]["number"] == first["ticket"]
+    cancel = await tools.cancel_ticket(first["ticket"], "works now", john)
+    assert cancel["status"] == "not_permitted"  # only Jane, who reported it, can cancel
+
+
+async def test_second_reporter_can_still_report_separately(sn):
+    await _report_mri(ctx_for(JANE))
+    john = ctx_for(JOHN, session="sess-2")
+    await pick(john, "CE-10421")
+    result = await tools.report_separately(john)
+    assert result["step"] == "describe_issue"
+
+
+async def test_personal_devices_skip_the_already_reported_check(sn):
+    ctx = ctx_for(JANE)
+    await _file(ctx)
+    await tools.start_request(ctx)
+    result = await pick(ctx, "123456")
+    assert result["step"] == "describe_issue"
+
+
+def test_maker_is_not_doubled():
+    assert cards.maker_model({"manufacturer": "GE HealthCare", "model": "GE HealthCare SIGNA Explorer"}) == \
+        "GE HealthCare SIGNA Explorer"
+    assert cards.maker_model({"manufacturer": "Apple", "model": "MacBook Air 13"}) == "Apple MacBook Air 13"
+
+
+async def test_equipment_tag_photo_needs_no_confirmation(sn, monkeypatch):
+    ctx = ctx_for(JANE)
+    send_photos(ctx, monkeypatch, label(asset_tag="CE-20457", serial_number="BD8015PC0457"))
+    await tools.analyze_photos(ctx)
+    result = await tools.set_issue("safety_concern", "Door cracked, could free-flow", "normal", ctx)
+    assert result["step"] == "review" and draft(ctx)["device"]["relation"] == "unconfirmed"
+    assert "Clinical Engineering" in card_text(ctx)

@@ -80,6 +80,8 @@ class FakeSN:
         return dict(self.tables[table][sys_id])
 
     def delete(self, table, sys_id):
+        if table == "cmdb_ci":  # the base table: the record lives in its class table
+            table = next(t for t, rows in self.tables.items() if t.startswith("cmdb_ci") and sys_id in rows)
         self.tables[table].pop(sys_id)
         self.deleted.append((table, sys_id))
 
@@ -162,11 +164,58 @@ def test_reset_one_user_leaves_the_rest(env):
     assert set(m.users) == {"john.doe"}
 
 
-def test_manager_is_resolved_after_being_seeded(env):
+def test_manager_is_resolved(env):
+    sn, users, _ = env
+    sn.tables["sys_user"]["u0"]["user_name"] = "abel.tuter"
+    sn_seed.cmd_set(sn, users, sn_seed.HERE / "catalog.json")
+    assert sn.tables["sys_user"]["u1"]["manager"] == "u0"  # john.doe's manager
+
+
+def _equipment(sn):
+    return {r["asset_tag"]: r for r in sn.tables["alm_hardware"].values() if r.get("comments") == f"{sn_seed.SEED_MARK} equipment"}
+
+
+def test_hospital_equipment_belongs_to_departments(env):
     sn, users, _ = env
     sn_seed.cmd_set(sn, users, sn_seed.HERE / "catalog.json")
+    eq = _equipment(sn)
+    assert len(eq) == 8
+    mri = eq["CE-10421"]
+    names = {t: {sid: r.get("name") for sid, r in sn.tables[t].items()}
+             for t in ("cmn_department", "sys_user_group", "cmn_location", "cmdb_model_category")}
+    assert mri["assigned_to"] == "" and names["cmn_department"][mri["department"]] == "Radiology"
+    assert names["sys_user_group"][mri["support_group"]] == "Imaging Engineering"
+    assert names["cmn_location"][mri["location"]] == "Riverside Medical Center - Radiology - MRI 1 (Room 104)"
+    assert names["cmdb_model_category"][mri["model_category"]] == "Imaging Equipment"
+    assert names["cmdb_model_category"][eq["610204"]["model_category"]] == "Computer"  # existing category reused
+    ci = sn.tables["cmdb_ci_hardware"][mri["ci"]]  # tickets link to it
+    assert ci["asset"] == mri["sys_id"] and ci["asset_tag"] == "CE-10421" and ci["department"] == mri["department"]
     jane = next(r for r in sn.tables["sys_user"].values() if r["user_name"] == "jane.doe")
-    assert jane["manager"] == "u1"  # john.doe, seeded earlier in the same file
+    assert names["cmn_department"][jane["department"]] == "Radiology"
+    service_desk = next(sid for sid, n in names["sys_user_group"].items() if n == "Service Desk")
+    assert [m["group"] for m in sn.tables["sys_user_grmember"].values() if m["user"] == "u1"] == [service_desk]
+
+    assert set(sn_seed.Manifest.load().equipment) == set(eq)  # listed for the report
+    sn_seed.cmd_set(sn, users, sn_seed.HERE / "catalog.json")  # idempotent
+    assert len(_equipment(sn)) == 8 and len(sn.tables["sys_user_grmember"]) == 1
+
+    manifest = sn_seed.Manifest.load()
+    manifest.equipment = {}
+    manifest.save()
+    sn_seed.cmd_set(sn, users, sn_seed.HERE / "catalog.json")  # a lost list is rebuilt from the seed mark
+    assert set(sn_seed.Manifest.load().equipment) == set(eq) and len(_equipment(sn)) == 8
+
+
+def test_reset_removes_equipment_but_one_user_reset_keeps_it(env):
+    sn, users, _ = env
+    sn_seed.cmd_set(sn, users, sn_seed.HERE / "catalog.json")
+    sn_seed.cmd_reset(sn, yes=True, memory=False, only={"john.doe"})
+    assert len(_equipment(sn)) == 8 and not sn.tables["sys_user_grmember"]
+    sn_seed.cmd_reset(sn, yes=True, memory=False)
+    assert not _equipment(sn) and not sn.tables["sys_user_group"] and not sn.tables["cmn_department"]
+    assert not sn.tables["cmdb_ci_hardware"]
+    left = {r["name"] for r in sn.tables["cmdb_model_category"].values()}
+    assert "Computer" in left and not left & {"Imaging Equipment", "Patient Care Equipment"}  # only ours removed
 
 
 def test_roles_granted_and_removed(env):
@@ -178,3 +227,17 @@ def test_roles_granted_and_removed(env):
     assert len(sn.tables["sys_user_has_role"]) == 6
     sn_seed.cmd_reset(sn, yes=True, memory=False)
     assert not sn.tables["sys_user_has_role"]
+
+
+def test_clear_tickets_keeps_people_and_equipment(env):
+    sn, users, _ = env
+    sn_seed.cmd_set(sn, users, sn_seed.HERE / "catalog.json")
+    mri = _equipment(sn)["CE-10421"]
+    sn.tables["incident"] = {
+        "i1": {"sys_id": "i1", "number": "INC1", "caller_id": "u1"},
+        "i2": {"sys_id": "i2", "number": "INC2", "caller_id": "u0", "cmdb_ci": mri.get("ci", "")},
+        "i3": {"sys_id": "i3", "number": "INC3", "caller_id": "u0"},  # unrelated
+    }
+    sn_seed.cmd_clear_tickets(sn, yes=True)
+    assert list(sn.tables["incident"]) == ["i3"]
+    assert len(_equipment(sn)) == 8 and sn.tables["sys_user"]["u1"]
