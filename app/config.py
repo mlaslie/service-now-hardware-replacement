@@ -40,4 +40,7 @@ SERVICE_URL = _env("SERVICE_URL", "http://localhost:8080").rstrip("/")
 # ServiceNow instance. The agent calls it with each signed-in user's own token.
 SN_INSTANCE_URL = _env("SN_INSTANCE_URL", "https://INSTANCE.service-now.com")
 
+# How this company's asset tags look, for the photo model. Plain words.
+ASSET_TAG_HINT = _env("ASSET_TAG_HINT", "a company sticker with a barcode and a short number, e.g. 123456 or IT-01234")
+
 APP_NAME = "hardware_replacement"

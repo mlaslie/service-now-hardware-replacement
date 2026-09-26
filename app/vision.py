@@ -40,7 +40,7 @@ class PhotoFindings(BaseModel):
     model: str = Field(default="", description="Marketing model name, e.g. 'ThinkPad X1 Carbon Gen 11'")
     part_number: str = Field(default="", description="Part/model/MTM number exactly as printed")
     serial_number: str = Field(default="", description="Serial exactly as printed, no spaces")
-    asset_tag: str = Field(default="", description="Company asset tag exactly as printed (often IT-##### or a barcode label)")
+    asset_tag: str = Field(default="", description="Company asset tag exactly as printed next to its barcode")
     damage_present: bool = False
     damage_description: str = Field(default="", description="One plain-language sentence a non-technical person understands")
     damage_severity: Severity = Severity.none
@@ -56,8 +56,10 @@ replacement request. Identify the device, transcribe any label text, and assess 
 Rules:
 - Transcribe serial numbers, asset tags and part numbers exactly as printed. Never guess
   characters you cannot read; leave the field empty and say so in notes.
-- Common label cues: "S/N" or "Serial" = serial number; "P/N", "MTM", "Model No." = part number;
-  a company sticker with a barcode = asset tag.
+- Common label cues: "S/N" or "Serial" = serial number; "P/N", "MTM", "Model No." = part number.
+  Apple prints "Serial (S)" or "(S) Serial No." with a leading S that is not part of the serial:
+  leave that S out. The asset tag is {asset_tag_hint}.
+- You cannot decode barcodes or QR codes. Read only the characters printed next to them.
 - Damage: describe only what is visible. Cracks, spider-webbing, dead pixels, dents, bent
   hinges, missing keys, swollen battery (lifted trackpad or bulging case), corrosion.
 - supports_replacement is true for cracked or shattered screens, swollen batteries, broken
@@ -74,7 +76,7 @@ def _client() -> genai.Client:
 
 
 async def analyze_photo(gcs_uri: str, mime_type: str, context_hint: str = "") -> PhotoFindings:
-    prompt = _PROMPT
+    prompt = _PROMPT.replace("{asset_tag_hint}", config.ASSET_TAG_HINT)
     if context_hint:
         prompt += f"\nWhat the employee said about the problem: {context_hint}\n"
     response = await _client().aio.models.generate_content(

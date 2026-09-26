@@ -161,6 +161,76 @@ def eligibility(asset: dict) -> dict:
     return out
 
 
+# Characters a label photo (or a person) commonly confuses, mapped to one form.
+_CONFUSABLE = str.maketrans({"O": "0", "Q": "0", "D": "0", "I": "1", "L": "1", "S": "5", "B": "8", "Z": "2"})
+
+
+def _loose(value: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", (value or "").upper()).translate(_CONFUSABLE)
+
+
+def _within_one_edit(a: str, b: str) -> bool:
+    if abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) > len(b):
+        a, b = b, a
+    i = j = edits = 0
+    while i < len(a) and j < len(b):
+        if a[i] != b[j]:
+            edits += 1
+            if edits > 1:
+                return False
+            if len(a) == len(b):
+                i += 1
+            j += 1
+        else:
+            i += 1
+            j += 1
+    return edits + (len(b) - j) <= 1
+
+
+def _words(value: str) -> str:
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", (value or "").lower()).split())
+
+
+def match_own_asset(assets: list[dict], identifier: str = "", model: str = "",
+                    manufacturer: str = "") -> tuple[dict | None, str]:
+    """Picks one of the user's own devices when an exact inventory lookup failed.
+
+    `identifier` is a serial number or asset tag as read or typed: compared with
+    commonly confused characters folded (O/0, I/1, S/5...), one wrong, missing or
+    extra character allowed, and Apple's "S" prefix ignored. `model` is compared
+    by name. Only a single candidate counts. Returns (asset, what matched).
+    """
+    raw = re.sub(r"[^A-Z0-9]", "", (identifier or "").upper())
+    if len(raw) >= 5:
+        keys = {_loose(raw)} | ({_loose(raw[1:])} if raw.startswith("S") and len(raw) >= 9 else set())
+        for field, label in (("serial_number", "serial number"), ("asset_tag", "asset tag")):
+            hits = [a for a in assets if (target := _loose(a.get(field, ""))) and len(target) >= 5
+                    and any(k == target or (len(target) >= 6 and _within_one_edit(k, target)) for k in keys)]
+            if len(hits) == 1:
+                return hits[0], label
+    wanted = _words(model)
+    if len(wanted) >= 4:
+        maker = _words(manufacturer)
+        hits = [a for a in assets
+                if (have := _words(a.get("model", ""))) and (wanted in have or have in wanted)
+                and (not maker or not a.get("manufacturer") or maker in _words(a["manufacturer"])
+                     or _words(a["manufacturer"]) in maker)]
+        if len(hits) == 1:
+            return hits[0], "model"
+    return None, ""
+
+
+def _match_note(asset: dict, how: str) -> str:
+    return (f"Matched to your {_device_name(asset)} by its {how}. If that's not the right device, "
+            "choose Change something.")
+
+
+def _device_name(asset: dict) -> str:
+    return f"{asset.get('model') or 'device'} ({asset.get('asset_tag', '')})"
+
+
 def _asset_summary(assets: list[dict]) -> list[dict]:
     return [{"asset_tag": a["asset_tag"], "type": a.get("device_type"), "model": a.get("model")} for a in assets]
 
@@ -199,6 +269,8 @@ def _refresh(draft: dict, employee: dict) -> dict:
                     else "2-3 business days")
 
     warnings = list(draft.get("photo_warnings") or [])
+    if draft.get("match_note"):
+        warnings.append(draft["match_note"])
     device = draft.get("device") or {}
     assigned = device.get("assigned_to")
     if assigned and assigned != employee.get("sys_id"):
@@ -300,11 +372,15 @@ async def select_device(asset_tag: str, tool_context: ToolContext) -> dict:
     if not employee:
         return _no_identity(tool_context)
     asset = await servicenow.find_asset(asset_tag=asset_tag) or await servicenow.find_asset(serial_number=asset_tag)
+    how = ""
+    if not asset:
+        asset, how = match_own_asset(await servicenow.my_assets(employee["sys_id"]), identifier=asset_tag)
     if not asset:
         _show(tool_context, cards.label_photo_request())
         return {"status": "not_found", "message": f"No asset {asset_tag} in inventory; asked the user for a label photo."}
     draft = _intake_draft(tool_context)
     draft.pop("suggested_device", None)
+    draft["match_note"] = _match_note(asset, how) if how else ""
     draft["device"] = _device_from_asset(asset)
     draft["eligibility"] = eligibility(asset)
     return await _next_step(tool_context, draft, employee)
@@ -377,32 +453,39 @@ async def analyze_photos(tool_context: ToolContext) -> dict:
     draft.setdefault("photos", [])
     photo_warnings = list(draft.get("photo_warnings") or [])
     note = ""
+    owned: list[dict] | None = None
     for photo, f in findings:
         draft["photos"].append({"uri": photo["uri"], "photo_id": photo["photo_id"], "filename": photo.get("filename", ""),
                                 "mime_type": photo["mime_type"], "findings": f})
 
-        # Label data -> inventory match.
-        if f["asset_tag"] or f["serial_number"]:
-            asset = await servicenow.find_asset(f["asset_tag"], f["serial_number"])
-            current = draft.get("device") or {}
-            if asset:
-                if current and current.get("asset_tag") != asset["asset_tag"]:
-                    # Offered on the review card as "Use <device> instead" (see _refresh).
-                    draft["suggested_device"] = _device_from_asset(asset)
-                elif not current:
-                    draft["device"] = _device_from_asset(asset)
-                    draft["eligibility"] = eligibility(asset)
-                photo_serial = f["serial_number"].upper().replace(" ", "")
-                if photo_serial and asset.get("serial_number") and photo_serial != asset["serial_number"].upper():
-                    photo_warnings.append(
-                        f"Serial on the label ({photo_serial}) differs from inventory ({asset['serial_number']}).")
+        # Label data -> inventory match; failing that, one of the user's own devices.
+        current = draft.get("device") or {}
+        has_id = bool(f["asset_tag"] or f["serial_number"])
+        asset = await servicenow.find_asset(f["asset_tag"], f["serial_number"]) if has_id else None
+        how = ""
+        if not asset and not current and f["image_kind"] != "unrelated":
+            if owned is None:
+                owned = await servicenow.my_assets(employee["sys_id"])
+            asset, how = match_own_asset(owned, f["serial_number"] or f["asset_tag"], f["model"], f["manufacturer"])
+        if asset:
+            if current and current.get("asset_tag") != asset["asset_tag"]:
+                # Offered on the review card as "Use <device> instead" (see _refresh).
+                draft["suggested_device"] = _device_from_asset(asset)
             elif not current:
-                draft["device"] = {
-                    "asset_tag": normalize_tag(f["asset_tag"]), "serial_number": f["serial_number"],
-                    "manufacturer": f["manufacturer"], "model": f["model"], "part_number": f["part_number"],
-                    "device_type": f["device_type"], "in_inventory": False,
-                }
-        elif not draft.get("device") and f["image_kind"] in ("label", "device"):
+                draft["device"] = _device_from_asset(asset)
+                draft["eligibility"] = eligibility(asset)
+                draft["match_note"] = _match_note(asset, how) if how else ""
+            photo_serial = f["serial_number"].upper().replace(" ", "")
+            if not how and photo_serial and asset.get("serial_number") and photo_serial != asset["serial_number"].upper():
+                photo_warnings.append(
+                    f"Serial on the label ({photo_serial}) differs from inventory ({asset['serial_number']}).")
+        elif has_id and not current:
+            draft["device"] = {
+                "asset_tag": normalize_tag(f["asset_tag"]), "serial_number": f["serial_number"],
+                "manufacturer": f["manufacturer"], "model": f["model"], "part_number": f["part_number"],
+                "device_type": f["device_type"], "in_inventory": False,
+            }
+        elif not current and f["image_kind"] in ("label", "device"):
             note = "I couldn't read an asset tag or serial number. Try a closer, sharper photo of the label."
 
         # Damage -> evidence.
@@ -426,7 +509,7 @@ async def analyze_photos(tool_context: ToolContext) -> dict:
 
     if not draft.get("device"):
         _save(tool_context, draft)
-        assets = await servicenow.my_assets(employee["sys_id"])
+        assets = owned if owned is not None else await servicenow.my_assets(employee["sys_id"])
         _show(tool_context, cards.photo_findings(findings[-1][1], assets, note))
         return {"status": "ok", "step": "device_unknown", "findings": summary, "assets": _asset_summary(assets)}
     result = await _next_step(tool_context, draft, employee)

@@ -213,11 +213,20 @@ async def test_8_maker_label_with_serial(sn, monkeypatch):
     assert draft(ctx)["device"]["asset_tag"] == "123456"
 
 
-async def test_9_maker_label_without_serial_offers_my_devices(sn, monkeypatch):
+async def test_9_maker_label_without_serial_matches_my_device_by_model(sn, monkeypatch):
     ctx = ctx_for()
     send_photos(ctx, monkeypatch, label(manufacturer="Apple", model="MacBook Air", part_number="MGN63LL/A"))
     result = await tools.analyze_photos(ctx)
-    assert result["step"] == "device_unknown"  # backlog A3: auto-pick by model when only one fits
+    assert result["step"] == "describe_issue"
+    assert draft(ctx)["device"]["asset_tag"] == "123456"
+    assert "by its model" in draft(ctx)["match_note"]  # shown on the review card to confirm
+
+
+async def test_9_unknown_model_still_offers_my_devices(sn, monkeypatch):
+    ctx = ctx_for()
+    send_photos(ctx, monkeypatch, label(manufacturer="HP", model="EliteBook 840"))
+    result = await tools.analyze_photos(ctx)
+    assert result["step"] == "device_unknown"
     assert [a["asset_tag"] for a in result["assets"]] == ["123456", "200001"]
 
 
@@ -378,3 +387,55 @@ async def test_required_photo_blocks_submit(sn):
     await tools.set_issue("cracked_screen", "Cracked", "normal", ctx)
     result = await tools.submit_ticket(ctx)
     assert result["step"] == "photo" and not sn.tables["incident"]
+
+
+# --- fuzzy matching against the user's own devices (A3) ----------------------------
+
+
+@pytest.mark.parametrize("read", ["SFCPJ2GJTHC", "FCPJZGJTHC", "FCPJ2GJ7HC", "FCPJ2GJTH", "fcpj-2gjt-hc"])
+async def test_18_misread_serial_matches_my_device(sn, monkeypatch, read):
+    ctx = ctx_for()
+    send_photos(ctx, monkeypatch, label(serial_number=read))
+    await tools.analyze_photos(ctx)
+    assert draft(ctx)["device"]["asset_tag"] == "123456"
+    assert draft(ctx)["device"]["in_inventory"] is True
+    assert not draft(ctx).get("photo_warnings")  # no "serial differs" noise for a fuzzy match
+
+
+async def test_typed_serial_with_a_typo_matches_and_says_so(sn):
+    ctx = ctx_for()
+    await tools.select_device("FCPJ2GJ7HC", ctx)
+    result = await tools.set_issue("wont_power_on", "Dead", "normal", ctx)
+    assert draft(ctx)["device"]["asset_tag"] == "123456"
+    assert any("by its serial number" in w for w in result["warnings"])
+
+
+async def test_exact_match_has_no_match_note(sn):
+    ctx = ctx_for()
+    await tools.select_device("123456", ctx)
+    result = await tools.set_issue("wont_power_on", "Dead", "normal", ctx)
+    assert not any("Matched to" in w for w in result["warnings"])
+
+
+async def test_fuzzy_match_never_reaches_someone_elses_device(sn):
+    ctx = ctx_for()  # Jane; PF4XYZ99 belongs to John
+    result = await tools.select_device("PF4XYZ98", ctx)
+    assert result["status"] == "not_found"
+
+
+async def test_fuzzy_match_does_not_replace_a_chosen_device(sn, monkeypatch):
+    ctx = ctx_for()
+    await tools.select_device("200001", ctx)
+    send_photos(ctx, monkeypatch, label(serial_number="FCPJ2GJ7HC"))
+    await tools.analyze_photos(ctx)
+    assert draft(ctx)["device"]["asset_tag"] == "200001" and "suggested_device" not in draft(ctx)
+
+
+def test_match_own_asset_needs_a_single_candidate():
+    macs = [{"asset_tag": "1", "serial_number": "C02AAA111", "model": "MacBook Air 13", "manufacturer": "Apple"},
+            {"asset_tag": "2", "serial_number": "C02AAA112", "model": "MacBook Air 15", "manufacturer": "Apple"}]
+    assert tools.match_own_asset(macs, model="MacBook Air") == (None, "")
+    assert tools.match_own_asset(macs, identifier="C02AAA11X") == (None, "")  # one edit from both
+    assert tools.match_own_asset(macs, model="MacBook Air 15")[0]["asset_tag"] == "2"
+    assert tools.match_own_asset(macs, model="MacBook Air 15", manufacturer="Dell") == (None, "")
+    assert tools.match_own_asset(macs, identifier="C02") == (None, "")  # too short to guess

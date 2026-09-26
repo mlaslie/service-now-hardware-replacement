@@ -42,7 +42,7 @@ asserts the resulting draft (device, in_inventory, evidence, warnings) and the c
 | 6 | Typed tag of **someone else's** asset | Selected with the "assigned to someone else" warning |
 | 7 | Photo of asset-tag sticker only | Device from tag, no evidence, photo step still offered for damage |
 | 8 | Photo of maker label (model + serial, no tag) | Matched by serial; part number kept |
-| 9 | Photo of maker label with model/part number but **no readable serial** | Today: "device unknown" picker. Proposed: auto-pick if exactly one owned asset matches the model (A3) |
+| 9 | Photo of maker label with model/part number but **no readable serial** | Auto-picks the one owned device with that model, with a confirm note (A3); otherwise the device picker |
 | 10 | Photo of damage with sticker visible | Device and evidence both filled in one step → review |
 | 11 | Photo of damage, no label, device already selected | Evidence only; make/type mismatch check |
 | 12 | Photo of damage, no label, nothing selected | Findings card with the user's devices |
@@ -51,7 +51,7 @@ asserts the resulting draft (device, in_inventory, evidence, warnings) and the c
 | 15 | Unrelated or unreadable photo | Friendly retake message, draft unchanged |
 | 16 | Two photos in one message (label + damage) | Both applied; device from the label, evidence from the damage |
 | 17 | Photo first, before any request | Fresh draft (A0.2) |
-| 18 | Serial with OCR-confusable characters (`0/O`, `1/I`, `5/S`) or Apple's leading `S` | Proposed fuzzy match against the user's own assets (A3) |
+| 18 | Serial with OCR-confusable characters (`0/O`, `1/I`, `5/S`) or Apple's leading `S` | Fuzzy match against the user's own devices only, with a confirm note (A3) |
 | 19 | Device not in inventory at all (read from the photo) | `in_inventory=False`, warning, ticket filed without `cmdb_ci` |
 | 20 | Second request in the same conversation | New ticket (A0.1) |
 
@@ -62,7 +62,10 @@ evals. Use `agents-cli eval` with an evalset of about 15 one-line openers ("asse
 "file it", "show my tickets", "the tracking number doesn't work, reopen it"). Assert the tool
 trajectory, and assert that no tool is called that the user didn't ask for (e.g. no submit without consent).
 
-### A3. Matching improvements (P1, S)
+### A3. Matching improvements (P1, S): **done (revision 00021)**
+
+`tools.match_own_asset`, used for typed values and photos when the exact lookup fails. Only the user's own devices are considered, a single candidate is required, and a note on the review card asks the user to confirm. `ASSET_TAG_HINT` in config replaces the hard-coded tag format. Tests are in `tests/test_paths.py`.
+
 - If an exact lookup fails, fall back to the user's **own** assets. Match by model or part number
   when exactly one fits, and by serial with edit distance ≤ 1 after mapping confusable characters. Always confirm
   on the review card ("Matched to your MacBook Air, serial FCPJ2GJTHC").
