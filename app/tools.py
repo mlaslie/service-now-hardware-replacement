@@ -16,6 +16,7 @@ import datetime as dt
 import functools
 import logging
 import re
+import uuid
 
 from google.adk.tools import ToolContext
 
@@ -64,8 +65,28 @@ def _show(ctx: ToolContext, messages: list[dict]) -> None:
     ctx.state[CARD_KEY] = messages
 
 
+def _new_draft() -> dict:
+    return {"id": uuid.uuid4().hex[:8]}
+
+
 def _draft(ctx: ToolContext) -> dict:
-    return dict(ctx.state.get("draft") or {})
+    draft = dict(ctx.state.get("draft") or {})
+    if not draft.get("id"):
+        # Saved at once: submit_ticket's duplicate check keys on it.
+        draft["id"] = _new_draft()["id"]
+        _save(ctx, draft)
+    return draft
+
+
+def _intake_draft(ctx: ToolContext) -> dict:
+    """The draft to add device, problem or photo details to. Once a request is
+    filed, new details (e.g. a photo sent after the confirmation) start a new
+    one instead of editing the filed request."""
+    draft = _draft(ctx)
+    if draft.get("submitted_number"):
+        draft = _new_draft()
+        _save(ctx, draft)
+    return draft
 
 
 def _save(ctx: ToolContext, draft: dict) -> None:
@@ -184,6 +205,10 @@ def _refresh(draft: dict, employee: dict) -> dict:
         warnings.append("Inventory shows this device assigned to someone else; the desk will confirm ownership.")
     if device and not device.get("in_inventory"):
         warnings.append("Device not found in inventory; details were read from your photo.")
+    suggested = draft.get("suggested_device") or {}
+    if suggested and suggested.get("asset_tag") != device.get("asset_tag"):
+        warnings.append(f"Your photo shows asset {suggested['asset_tag']} ({suggested.get('model') or 'device'}), "
+                        f"not the selected {device.get('asset_tag')}.")
     mismatch = _photo_mismatch(draft)
     if mismatch:
         warnings.append(mismatch)
@@ -255,7 +280,7 @@ async def start_request(tool_context: ToolContext) -> dict:
     employee = await _employee(tool_context)
     if not employee:
         return _no_identity(tool_context)
-    draft: dict = {}
+    draft = _new_draft()
     _save(tool_context, draft)
     tool_context.state["last_photo_ids"] = []
     result = await _next_step(tool_context, draft, employee)
@@ -278,7 +303,8 @@ async def select_device(asset_tag: str, tool_context: ToolContext) -> dict:
     if not asset:
         _show(tool_context, cards.label_photo_request())
         return {"status": "not_found", "message": f"No asset {asset_tag} in inventory; asked the user for a label photo."}
-    draft = _draft(tool_context)
+    draft = _intake_draft(tool_context)
+    draft.pop("suggested_device", None)
     draft["device"] = _device_from_asset(asset)
     draft["eligibility"] = eligibility(asset)
     return await _next_step(tool_context, draft, employee)
@@ -311,7 +337,7 @@ async def set_issue(category: str, description: str, urgency: str, tool_context:
         return _no_identity(tool_context)
     if category not in ISSUE_LABELS:
         return {"status": "error", "message": f"Unknown category {category!r}. Use one of {list(ISSUE_LABELS)}."}
-    draft = _draft(tool_context)
+    draft = _intake_draft(tool_context)
     draft["issue"] = {"category": category, "description": description.strip(),
                       "urgency": urgency if urgency in _PRIORITY else "normal"}
     return await _next_step(tool_context, draft, employee)
@@ -333,7 +359,7 @@ async def analyze_photos(tool_context: ToolContext) -> dict:
     if not photos:
         return {"status": "error", "message": "No new photo found. Ask the user to attach it again."}
 
-    draft = _draft(tool_context)
+    draft = _intake_draft(tool_context)
     hint = (draft.get("issue") or {}).get("description", "")
     results = await asyncio.gather(
         *(vision.analyze_photo(p["uri"], p["mime_type"], hint) for p in photos), return_exceptions=True
@@ -361,8 +387,8 @@ async def analyze_photos(tool_context: ToolContext) -> dict:
             current = draft.get("device") or {}
             if asset:
                 if current and current.get("asset_tag") != asset["asset_tag"]:
-                    photo_warnings.append(
-                        f"The photo shows asset {asset['asset_tag']}, not the selected {current.get('asset_tag')}.")
+                    # Offered on the review card as "Use <device> instead" (see _refresh).
+                    draft["suggested_device"] = _device_from_asset(asset)
                 elif not current:
                     draft["device"] = _device_from_asset(asset)
                     draft["eligibility"] = eligibility(asset)
@@ -476,8 +502,10 @@ async def submit_ticket(tool_context: ToolContext) -> dict:
         return await _next_step(tool_context, draft, employee)
 
     issue, device = draft["issue"], draft["device"]
-    conversation_id = tool_context.session.id if tool_context.session else ""
-    # A retried turn (e.g. the reply failed after filing) must not file twice.
+    session_id = tool_context.session.id if tool_context.session else ""
+    # One per request, not per conversation: a retried turn (e.g. the reply
+    # failed after filing) must not file twice, but a second request must file.
+    conversation_id = f"{session_id}:{draft['id']}" if session_id else ""
     existing = await servicenow.find_open_by_correlation(employee["sys_id"], conversation_id) if conversation_id else None
     if existing:
         ticket = existing

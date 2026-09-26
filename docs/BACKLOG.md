@@ -15,7 +15,7 @@ A code review of the wizard (`app/tools.py`, `app/agent.py`, `app/vision.py`,
 automated tests for tools are the photo-mismatch check, the ship-to replacement and
 `_apply_changes`; **no intake path is tested**.
 
-### A0. Bugs found in the review (P0)
+### A0. Bugs found in the review (P0): **fixed 2026-09-26 (revision 00020)**
 
 | ID | Bug | Where | Fix | Size |
 |---|---|---|---|---|
@@ -24,7 +24,9 @@ automated tests for tools are the photo-mismatch check, the ship-to replacement 
 | A0.3 | Typed asset tag or serial isn't routed. The instruction only mentions typed values under the `no_label` button, so "my asset tag is 123456, screen is cracked" depends on the model guessing `select_device`. | `INSTRUCTION` | Add a rule: a tag or serial in free text → `select_device` (after `start_request` if needed), in the same turn as `set_issue` | S |
 | A0.4 | A photo that shows a **different** inventory device than the one selected only raises a warning; there's no way to switch. | `analyze_photos` | Return the matched asset and let the review card offer "Use <asset> instead" | S |
 
-### A1. Intake path matrix: automated tests (P0, M)
+### A1. Intake path matrix: automated tests (P0, M): **done, `tests/test_paths.py` (31 tests)**
+
+Runs the real tools and ServiceNow client; only the HTTP call, the photo model, photo upload and Memory Bank are faked. The A0 bug tests were checked to fail on the old code.
 
 Add `tests/test_paths.py`. It should use a fake ServiceNow (like `FakeSN` in `test_sn_seed.py`), a stubbed
 `vision.analyze_photo` returning canned `PhotoFindings`, and a fake `ToolContext`. Each row

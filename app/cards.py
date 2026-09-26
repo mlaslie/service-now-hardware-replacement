@@ -230,6 +230,10 @@ def review(draft: dict, employee: dict) -> list[dict]:
         c.button("Submit request", "submit_ticket", primary=True),
         c.button("Change something", "edit_request"),
     ]))
+    suggested = draft.get("suggested_device") or {}
+    if suggested and suggested.get("asset_tag") != device.get("asset_tag"):
+        kids.append(c.button(f"Use {_device_label(suggested)} instead", "select_device",
+                             {"asset_tag": suggested["asset_tag"]}))
     return c.build(kids)
 
 
