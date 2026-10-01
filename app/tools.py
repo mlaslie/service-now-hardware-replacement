@@ -452,8 +452,13 @@ async def _next_step(ctx: ToolContext, draft: dict, employee: dict) -> dict:
         return {"status": "ok", "step": "choose_device", "assets": _asset_summary(assets)}
     if not device.get("confirmed"):
         _show(ctx, cards.confirm_device(device, draft.get("match_note", "")))
-        return {"status": "ok", "step": "confirm_device", "device": _device_name(device),
-                "belongs_to": device.get("relation_text")}
+        result = {"status": "ok", "step": "confirm_device", "device": _device_name(device),
+                  "belongs_to": device.get("relation_text")}
+        if not issue:
+            # The model tends to stop at this card; a problem already described would then be asked again.
+            result["next"] = ("If the user's message already said what is wrong, call set_issue now, in this "
+                              "turn: it is kept while they check the device. Never call confirm_device yourself.")
+        return result
     if cards.is_equipment(device) and device.get("ci") and not draft.get("duplicates_checked"):
         draft["duplicates_checked"] = True
         _save(ctx, draft)
@@ -836,10 +841,13 @@ async def submit_ticket(tool_context: ToolContext) -> dict:
     else:
         impact, urgency = servicenow.URGENCY_TO_IMPACT_URGENCY[_urgency_key(draft)]
         where = device.get("location") or device.get("department")
+        # The organization's extra fields first (config/organization.yaml servicenow.ticket_fields);
+        # what the agent sets itself below always wins.
+        configured = _configured_fields(draft)
         fields = {
+            **configured,
             "caller_id": employee["sys_id"],
             "category": servicenow.HARDWARE,
-            "contact_type": "self-service",
             "impact": impact,
             "urgency": urgency,
             "short_description": (f"{ISSUE_LABELS.get(issue['category'])}: {device.get('model') or 'device'} "
@@ -860,13 +868,14 @@ async def submit_ticket(tool_context: ToolContext) -> dict:
         if watchers:
             fields["watch_list"] = ",".join(dict.fromkeys(watchers))
         ticket = await servicenow.create_incident(fields)
+        refused = await servicenow.dropped_fields(ticket["sys_id"], {k: fields[k] for k in configured if k in fields})
         if not ticket["description"].strip():
             # ServiceNow drops fields the caller isn't allowed to set (e.g. without
             # the itil role). Comments are always allowed, so the details go there.
             await servicenow.update_incident(employee["sys_id"], ticket["number"], {
                 "comments": "Request details (added by the Hardware Replacement agent):\n\n" + fields["description"]})
             logger.info("description not accepted by ServiceNow; details added as a note")
-        desk_notes = []
+        desk_notes = [f"Could not set {k} = {v!r} from the reporter's account; please set it." for k, v in refused.items()]
         if device.get("relation") == "unconfirmed":
             desk_notes.append(f"{device.get('ownership_note')}. Filed anyway, as the agent allows anyone to report equipment.")
         if fields.get("assignment_group") and ticket.get("assignment_group_id") != fields["assignment_group"]:
@@ -899,6 +908,24 @@ async def submit_ticket(tool_context: ToolContext) -> dict:
     _show(tool_context, cards.confirmation(ticket["number"], draft))
     return {"status": "submitted", "ticket": ticket["number"], "priority": draft["assigned_priority"],
             "requested_priority": draft["priority"], "sla": draft["sla"]}
+
+
+def _configured_fields(draft: dict) -> dict[str, str]:
+    """servicenow.ticket_fields from the profile, filled in for this request."""
+    issue, device = draft.get("issue") or {}, draft.get("device") or {}
+    chosen = PROFILE.issue(issue.get("category", ""))
+    settings = PROFILE.servicenow
+    return settings.render_fields({
+        "issue_key": issue.get("category", ""),
+        "issue_value": (chosen.servicenow_value or chosen.key) if chosen else issue.get("category", ""),
+        "issue_label": ISSUE_LABELS.get(issue.get("category", ""), ""),
+        "device_value": settings.device_value(device.get("device_type", ""), device.get("category", "")),
+        "device_type": device.get("device_type", ""),
+        "device_kind": device.get("kind", ""),
+        "model_category": device.get("category", ""),
+        "department": device.get("department", ""),
+        "location": device.get("location", ""),
+    })
 
 
 def _urgency_key(draft: dict) -> str:

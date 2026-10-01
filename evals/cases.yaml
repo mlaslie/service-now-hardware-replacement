@@ -1,0 +1,127 @@
+# Model-routing cases for evals/run.py. Each case is one conversation as Jane Doe (MRI
+# Technologist, Radiology; owns MacBook Air 123456 and Dell monitor 200001) or John Doe
+# (IT, Service Desk group), against the in-memory ServiceNow from tests/test_paths.py.
+#
+# expect: calls (in order; others may come between), not_calls, args (substring match),
+#         no_calls, reply_contains, reply_not_contains.
+# Clicks are typed exactly as the agent receives them: [UI action] <name> <json>.
+
+- id: typed-asset-tag
+  turns:
+    - say: "asset 123456 won't turn on"
+      expect:
+        calls: [select_device, set_issue]
+        args: {select_device: {asset_tag: "123456"}, set_issue: {category: wont_power_on}}
+        not_calls: [confirm_device, submit_ticket]
+        reply_contains: ["Is this the right device?"]
+
+- id: typed-serial-urgent
+  turns:
+    - say: "S/N FCPJ2GJTHC has a cracked screen and I have a client demo tomorrow"
+      expect:
+        calls: [select_device, set_issue]
+        args: {select_device: {asset_tag: FCPJ2GJTHC}, set_issue: {category: cracked_screen}}
+        not_calls: [confirm_device, submit_ticket]
+
+- id: describe-equipment
+  turns:
+    - say: "The MRI in room 104 is showing a gradient coil error and we have patients waiting"
+      expect:
+        calls: [find_device, set_issue]
+        args: {find_device: {description: MRI}, set_issue: {category: error_alarm}}
+        not_calls: [confirm_device, select_device, submit_ticket]
+        reply_contains: ["Is this the right device?", "CE-10421"]
+
+- id: confirm-is-only-the-users
+  turns:
+    - say: "the MRI in room 104 is down"
+      expect:
+        calls: [find_device]
+        not_calls: [confirm_device]
+    - say: "[UI action] confirm_device {\"correct\": \"yes\"}"
+      expect:
+        calls: [confirm_device]
+        args: {confirm_device: {correct: true}}
+
+- id: safety-photo
+  photo: {image_kind: label, asset_tag: CE-20457, serial_number: BD8015PC0457, manufacturer: BD,
+          model: Alaris 8015, device_type: medical equipment}
+  turns:
+    - say: "[Photo attached: ph_pump] Found this pump in the ED hallway, the door is cracked and it could free-flow"
+      expect:
+        calls: [analyze_photos, set_issue]
+        args: {set_issue: {category: safety_concern}}
+        not_calls: [submit_ticket]
+        reply_contains: ["take it out of service"]
+
+- id: looks-good-keeps-address
+  saved_addresses: [{label: Home, address: "742 Evergreen Terrace, Kansas City, MO 64110"}]
+  turns:
+    - say: "[UI action] select_device {\"asset_tag\": \"123456\"}"
+      expect: {calls: [select_device]}
+    - say: "[UI action] confirm_device {\"correct\": \"yes\"}"
+      expect: {calls: [confirm_device]}
+    - say: "it won't turn on at all"
+      expect:
+        calls: [set_issue]
+        not_calls: [update_request, choose_ship_to]
+        reply_contains: ["Ship to Home instead"]
+    - say: "everything looks good, go ahead"
+      expect:
+        calls: [submit_ticket]
+        not_calls: [update_request, choose_ship_to]
+        reply_contains: ["submitted"]
+
+- id: ship-to-my-house
+  saved_addresses: [{label: Home, address: "742 Evergreen Terrace, Kansas City, MO 64110"}]
+  turns:
+    - say: "[UI action] select_device {\"asset_tag\": \"123456\"}"
+    - say: "[UI action] confirm_device {\"correct\": \"yes\"}"
+    - say: "it won't turn on"
+    - say: "please ship it to my house"
+      expect:
+        calls: [update_request]
+        not_calls: [submit_ticket]
+        reply_contains: ["742 Evergreen Terrace"]
+
+- id: hotel-needs-street-address
+  turns:
+    - say: "[UI action] select_device {\"asset_tag\": \"123456\"}"
+    - say: "[UI action] confirm_device {\"correct\": \"yes\"}"
+    - say: "it won't turn on"
+    - say: "ship it to the Marriott in Chicago, I'm traveling"
+      expect:
+        not_calls: [submit_ticket]
+        reply_contains: ["address"]
+
+- id: list-tickets
+  tickets: [{number: INC0099001}]
+  turns:
+    - say: "show my tickets"
+      expect:
+        calls: [list_my_tickets]
+        not_calls: [start_request]
+
+- id: status-question-refetches
+  tickets: [{number: INC0099001}]
+  turns:
+    - say: "any update on INC0099001?"
+      expect:
+        calls: [get_ticket]
+        args: {get_ticket: {number: INC0099001}}
+
+- id: reopen-and-note-in-one-call
+  tickets: [{number: INC0099001, state: "6"}]
+  turns:
+    - say: "INC0099001: the tracking number you sent doesn't work, move it back to in progress"
+      expect:
+        calls: [update_ticket]
+        args: {update_ticket: {number: INC0099001, status: progress, note: tracking}}
+        not_calls: [add_ticket_note]
+
+- id: off-topic
+  turns:
+    - say: "what's the weather in Kansas City today?"
+      expect:
+        no_calls: true
+        reply_contains: ["hardware"]

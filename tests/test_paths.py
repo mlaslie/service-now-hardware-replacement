@@ -61,6 +61,7 @@ class FakeTableAPI:
         }
         self.tables["alm_hardware"][5]["ci"] = {"value": ""}
         self.numbers = itertools.count(10001)
+        self.refuse: set[str] = set()
 
     _COND = re.compile(r"^([a-z_.]+?)(ISEMPTY|ISNOTEMPTY|!=|LIKE|IN|=)(.*)$")
 
@@ -94,6 +95,7 @@ class FakeTableAPI:
             rows = [r for r in self.tables[table] if self._match(r, params.get("sysparm_query", ""))]
             return {"result": [dict(r) for r in rows[: int(params.get("sysparm_limit", 1000))]]}
         if method == "POST" and table == "incident":
+            json = {k: v for k, v in json.items() if k not in self.refuse}  # as ServiceNow drops fields silently
             impact, urgency = int(json.get("impact", 2)), int(json.get("urgency", 2))
             row = {**json, "sys_id": f"i{len(self.tables['incident']) + 1}",
                    "number": f"INC00{next(self.numbers)}", "state": "1", "sys_created_on": "2026-09-26 10:00:00",
@@ -749,3 +751,27 @@ async def test_changing_a_filed_tickets_ship_to_needs_a_real_address(sn):
     filed = await _file(ctx)
     result = await tools.update_ticket(filed["ticket"], ctx, ship_to="the hotel")
     assert result["status"] == "need_address"
+
+
+
+# --- configured ticket fields (config/organization.yaml servicenow.ticket_fields) ----------
+
+
+async def test_configured_fields_are_set_on_the_ticket(sn):
+    await _file(ctx_for())  # MacBook Air: a laptop
+    ticket = sn.tables["incident"][0]
+    assert ticket["subcategory"] == "cpu" and ticket["contact_type"] == "self-service"
+
+
+async def test_unmapped_device_type_leaves_the_field_unset(sn):
+    ctx = ctx_for(JANE)
+    await pick(ctx, "CE-10421")  # MRI: medical equipment, not in device_values
+    await tools.set_issue("not_working", "Dead", "normal", ctx)
+    await tools.submit_ticket(ctx)
+    assert "subcategory" not in sn.tables["incident"][0]
+
+
+async def test_a_refused_field_is_noted_for_the_desk(sn):
+    sn.refuse = {"subcategory"}
+    await _file(ctx_for())
+    assert any("Could not set subcategory = 'cpu'" in c for c in sn.tables["incident"][0]["comments_log"])

@@ -67,9 +67,10 @@ writing `AGENT_ENGINE_ID` into `.env`. Safe to rerun.
 ## 5. Your organization profile
 
 Edit `config/organization.yaml` (a hospital example) or start from `config/examples/office.yaml`:
-agent name, colour, problem choices, texts. Then:
+agent name, colour, problem choices, texts, and which ServiceNow fields each ticket fills. Then:
 ```bash
-uv run python -m app.profile
+uv run python -m app.profile                 # the file is valid
+uv run python scripts/sn_profile.py check    # every value exists in your ServiceNow (after step 9's login)
 ```
 Every field: [CONFIGURATION.md](CONFIGURATION.md).
 

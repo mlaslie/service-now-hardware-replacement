@@ -19,7 +19,6 @@ sys.path.insert(0, str(ROOT / "seed"))
 import sn_seed  # noqa: E402
 
 ROLE = "u_hardware_requester"
-MARK = "[hardware-agent]"
 EXPECTED_RULES = 13
 
 
@@ -34,7 +33,10 @@ def main() -> None:
         sys.exit(f"Role {ROLE} not found. Run scripts/servicenow/create_hardware_requester_role.js in ServiceNow "
                  "(Scripts - Background, elevated to security_admin). See docs/ROLES.md.")
     if args.command == "status":
-        rules = sn.query("sys_security_acl", f"descriptionSTARTSWITH{MARK}", "name,operation,active", 100)
+        # Linked through the role: ServiceNow rewrites a new rule's description on insert.
+        ids = [r["sys_security_acl"] for r in sn.query("sys_security_acl_role", f"sys_user_role={role['sys_id']}",
+                                                        "sys_security_acl", 100)]
+        rules = sn.query("sys_security_acl", "sys_idIN" + ",".join(ids), "name,operation,active", 100) if ids else []
         print(f"role {ROLE}: present")
         for r in sorted(rules, key=lambda r: (r["name"], r["operation"])):
             print(f"  {r['name']:24} {r['operation']:6} {'active' if r['active'] == 'true' else 'INACTIVE'}")

@@ -54,12 +54,14 @@
 
   for (var i = 0; i < RULES.length; i++) {
     var name = RULES[i][0], op = RULES[i][1], script = RULES[i][2], what = RULES[i][3];
+    // Our rules are found through their link to the role: ServiceNow rewrites a new rule's description.
     var acl = new GlideRecord('sys_security_acl');
-    acl.addQuery('name', name);
-    acl.addQuery('operation', op);
-    acl.addQuery('description', 'STARTSWITH', MARK);
-    acl.query();
-    var isNew = !acl.next();
+    var linked = new GlideRecord('sys_security_acl_role');
+    linked.addQuery('sys_user_role', roleId);
+    linked.addQuery('sys_security_acl.name', name);
+    linked.addQuery('sys_security_acl.operation', op);
+    linked.query();
+    var isNew = !(linked.next() && acl.get(linked.getValue('sys_security_acl')));
     if (isNew) {
       acl.initialize();
       acl.name = name;

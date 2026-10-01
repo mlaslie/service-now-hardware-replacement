@@ -77,6 +77,22 @@ A role that allows exactly what the agent does for a requester, on hardware tick
 
 Followers can add notes and follow, but only the reporter can change details or status.
 
+**Measured** (2026-10-01, `sn_doctor.py --matrix --persona none --persona u_hardware_requester --persona itil`,
+temporary users, everything deleted afterwards): **`u_hardware_requester` passes all 16 checks, the same as
+`itil`**, where a user with no roles fails 8.
+
+| What the agent does | no roles | `u_hardware_requester` | `itil` |
+|---|---|---|---|
+| Who am I; own devices; find by tag; department equipment; add/read notes; attach photo | yes | yes | yes |
+| Read own group memberships | no | yes | yes |
+| Read the device record (CI) | no | yes | yes |
+| Create a ticket | partly (drops urgency, description) | yes | yes |
+| Change status, urgency, ship-to; cancel own ticket | no | yes | yes |
+| See and follow someone else's open ticket | no | yes | yes |
+
+Note: ServiceNow rewrites a new rule's description ("Allow write for ..."), so the scripts find
+their rules through the rules' link to the role, not by description.
+
 **Create it** (once; ServiceNow lets only a session elevated to `security_admin` create access rules,
 so this is a background script rather than an API call):
 

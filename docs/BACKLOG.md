@@ -67,9 +67,9 @@ office" and one for "hospital" (today's behaviour).
 | G3.2 | **Branding**: agent display name, description and examples (agent card), brand colour (`theme.primaryColor`; document the measured limits: only primary buttons take it, secondary stay grey, GE controls fonts, `MaterialButton` ignores it), which buttons are primary, optional `iconUrl` / `agentDisplayName` theme fields (untested). | S |
 | G3.3 | **Wording**: every user-facing string (card titles, subtitles, button labels, the desktop/mobile question and accepted answers, safety text, confirmation text) in `config/messages.yaml`. Keys, not Python. Opens the door to G5.1 (languages). | M |
 | G3.4 | **Problem choices**: per device kind, the list of issue options, each with its label, the ServiceNow value it writes (category / subcategory / custom field), whether a photo is required / recommended / not asked, what to photograph, and a minimum urgency (e.g. safety concern = critical). Replaces `ISSUE_CATEGORIES`, `EQUIPMENT_ISSUES`, `PHOTO_POLICY`, `_BLOCKING`. | M |
-| G3.5 | **Use the organization's own ServiceNow choice lists.** Option A: `source: servicenow` reads `sys_choice` for a field (e.g. `incident.subcategory` where `dependent_value=hardware`, or a custom `u_hardware_type`) and shows exactly those, with their labels and order, cached. Option B: a static list in the profile, each mapped to a choice value. Either way the agent only ever writes values that exist; `--check` flags profile values missing from ServiceNow. | M |
+| G3.5 | **Done via option B + import: `scripts/sn_profile.py import-issues` / `check`; no run-time reads.** **Use the organization's own ServiceNow choice lists.** Option A: `source: servicenow` reads `sys_choice` for a field (e.g. `incident.subcategory` where `dependent_value=hardware`, or a custom `u_hardware_type`) and shows exactly those, with their labels and order, cached. Option B: a static list in the profile, each mapped to a choice value. Either way the agent only ever writes values that exist; `--check` flags profile values missing from ServiceNow. | M |
 | G3.6 | **Device types from ServiceNow**: map model categories to device kinds (personal / shared / clinical) and to the organization's hardware-type values, instead of the laptop-name heuristics and `CLINICAL_CATEGORIES`. | S |
-| G3.7 | **Ticket mapping**: which table (incident today; option for a Service Catalog item / `sc_req_item`, see D4), which category, which fields get description, urgency/impact, CI, location, assignment group, correlation id; the state labels and codes; the priority matrix (urgency × impact → label). Organizations with custom fields add them here (e.g. `u_cost_center`, `u_building`). | M |
+| G3.7 | **Partly done: `ticket_fields` (templated), `device_values`, `urgency_matrix`, refused fields noted; table / catalog item and state codes still fixed.** **Ticket mapping**: which table (incident today; option for a Service Catalog item / `sc_req_item`, see D4), which category, which fields get description, urgency/impact, CI, location, assignment group, correlation id; the state labels and codes; the priority matrix (urgency × impact → label). Organizations with custom fields add them here (e.g. `u_cost_center`, `u_building`). | M |
 | G3.8 | **Service rules**: response targets per priority, refresh ages per device type, recommendation texts, "who handles it" fallback group, whether requesters may change urgency / reopen / cancel (or only request it via a note). | S |
 | G3.9 | **Feature switches**: equipment reporting, photo analysis, followers / duplicate detection, saved addresses, memory, the desktop/mobile question (off for web-only organizations), safety concern category, ownership check. | S |
 | G3.10 | **Persona and tone**: industry (hospital / office / university / field service), audience, tone, and extra rules appended to the instruction from the profile, with the tool-routing part of the instruction kept in code so customizations can't break the flow. | S |
@@ -83,7 +83,7 @@ office" and one for "hospital" (today's behaviour).
 | G4.1 | **Privacy and security notes**, especially for hospitals: photos may capture patients or screens with patient data (add a reminder on the photo step; optional face/PHI blur); photo retention (GCS lifecycle rule, attachment copied to ServiceNow); what is stored where (sessions, memory, saved addresses) and how to delete a person's data; tokens never logged; VPC-SC / CMEK / data residency options. | M |
 | G4.2 | **Observability**: a Cloud Logging dashboard (turns, tickets filed, paths taken (D10), errors, ServiceNow refusals, model latency) and alerting on error rate and ServiceNow sign-in failures. | M |
 | G4.3 | **Cost guide**: per-ticket cost of model calls, vision, Cloud Run min-instance, Agent Runtime sessions/memory; knobs to reduce it. | S |
-| G4.4 | **Regression safety for customizations**: evals (A2) run against the organization's profile; `pytest` fixtures that load any profile, so a customization that breaks the flow fails in CI. | M |
+| G4.4 | **Partly done: `evals/run.py` runs against whatever profile is loaded.** **Regression safety for customizations**: evals (A2) run against the organization's profile; `pytest` fixtures that load any profile, so a customization that breaks the flow fails in CI. | M |
 | G4.5 | **Support runbook**: rotate the OAuth client secret, re-register after a card change, instance hibernation, user reports "wrong person", clearing a stuck conversation. | S |
 
 ### G5. Brainstorm: other customizations organizations will ask for (P2, pick later)
@@ -100,7 +100,8 @@ office" and one for "hospital" (today's behaviour).
 - **G5.10 Branding beyond colour**: agent icon in Gemini Enterprise, custom greeting, sign-off text.
 
 ### Status (2026-09-30)
-Done: G1.1, G1.3, G2.1, G2.2, G2.3, G2.6 (text), G2.7, G2.8, G3.1. Already covered by the profile: the colour and
+Done: G1.1, G1.3, G2.1, G2.2, G2.3, G2.6 (text), G2.7, G2.8, G3.1, G3.5, most of G3.7, A2. Custom role
+`u_hardware_requester` scripted (docs/ROLES.md), waiting to be created in ServiceNow and measured. Already covered by the profile: the colour and
 agent card text (G3.2), problem choices with photo and urgency rules (G3.4, static lists), device categories (part of
 G3.6), service texts and response targets (G3.8), persona (G3.10). Measured finding: `itil` alone covers every
 feature; with no roles, requesters can still file (details go in a note) but can't change, follow or be matched to
@@ -163,7 +164,7 @@ asserts the resulting draft (device, in_inventory, evidence, warnings) and the c
 | 19 | Device not in inventory at all (read from the photo) | `in_inventory=False`, warning, ticket filed without `cmdb_ci` |
 | 20 | Second request in the same conversation | New ticket (A0.1) |
 
-### A2. Model-routing evals (P1, M)
+### A2. Model-routing evals (P1, M): **done, `evals/run.py` + `evals/cases.yaml` (12 cases, real model, fake ServiceNow)**
 The table above tests the tools; whether the **model** calls the right tool from free text needs
 evals. Use `agents-cli eval` with an evalset of about 15 one-line openers ("asset 123456 won't turn on",
 "S/N FCPJ2GJTHC cracked screen, demo tomorrow", "here's the sticker" + photo marker,

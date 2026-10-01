@@ -45,7 +45,7 @@ in text mode (first reply asks mobile vs desktop).
 ### Google Cloud (`PROJECT_ID`, number `PROJECT_NUMBER`, region `us-central1`)
 | Resource | Name / ID | Notes |
 |---|---|---|
-| Cloud Run service | `hardware-replacement-agent` | URL `https://hardware-replacement-agent-PROJECT_NUMBER.us-central1.run.app` (the card advertises this form). Latest revision `00027`. `--no-allow-unauthenticated`, min 1 instance, concurrency 4, 1 GiB. |
+| Cloud Run service | `hardware-replacement-agent` | URL `https://hardware-replacement-agent-PROJECT_NUMBER.us-central1.run.app` (the card advertises this form). Latest revision `00029`. `--no-allow-unauthenticated`, min 1 instance, concurrency 4, 1 GiB. |
 | Runtime service account | `hardware-agent@PROJECT_ID.iam.gserviceaccount.com` | `aiplatform.user`, `logging.logWriter`, `storage.objectUser` on the bucket |
 | Cloud Run invoker | `service-PROJECT_NUMBER@gcp-sa-discoveryengine.iam.gserviceaccount.com` | `run.invoker` on the service only. This is how Gemini Enterprise calls it. |
 | Agent Runtime "state engine" | `projects/PROJECT_NUMBER/locations/us-central1/reasoningEngines/ENGINE_ID` (`hardware-replacement-state`) | **Runs no code.** Hosts managed Sessions + Memory Bank (topics: USER_PREFERENCES, delivery_and_contact, hardware_history). |
@@ -85,7 +85,7 @@ agent's authorization means deleting and re-adding the agent.
 | `john.doe` | Test user "John Doe" (`john.doe@example.com`), IT Systems Analyst, department **IT**, member of the **Service Desk** group, location Riverside Medical Center. Roles `itil`, `asset`, `sn_incident_write`, `snc_platform_rest_api_access`, `rest_service`. MacBook Air 13" asset tag `123456`, serial `FCPJ2GJTHC`. |
 | `OWNER` | Created with **Identity type = AI** and **Internal Integration User** checked: **cannot log in interactively**. Don't use it. |
 | `inventory_admin` | Demo user; unused |
-| `jane.doe` | Test user "Jane Doe" (`jane.doe@example.com`), MRI Technologist, department **Radiology**, created by the seed script; needs **Set Password** manually. Same roles as john.doe. |
+| `jane.doe` | Test user "Jane Doe" (`jane.doe@example.com`), MRI Technologist, department **Radiology**, created by the seed script; needs **Set Password** manually. Role **`u_hardware_requester` only** (no `itil`), since 2026-10-01: proves the agent works without `itil`. |
 
 | OAuth client (Application Registry) | Use |
 |---|---|
@@ -197,6 +197,8 @@ uv run --group seed pytest                      # everything: 48 tests
 | 21 | Seed: creating a model category with `cmdb_ci_class=cmdb_ci_hardware` → 403 "Operation Failed" | ServiceNow allows one model category per CI class ("Hardware" already has it); a made-up class name is accepted but no table exists | New equipment categories get no CI class; the seed creates each CI (`cmdb_ci_hardware`) and links it |
 | 22 | Equipment asset's `ci` stays empty after setting it | ServiceNow clears `alm_asset.ci` when the model category has no CI class; the CI keeps its `asset` reference | `servicenow._link_cis` finds the CI via `cmdb_ci.asset` |
 | 23 | Seed summary said "0 pieces of equipment" | An edit dropped the line recording equipment in the manifest | Restored, and `set` re-records seed-marked equipment it finds; test added |
+| 24 | Creating an ACL through the API → 403 | Only a session elevated to `security_admin` may create ACLs | `u_hardware_requester` is a background script the admin runs once (`scripts/servicenow/`); not bypassed |
+| 25 | Evals: the model sometimes stopped at "Is this the right device?" and dropped a problem the user had already described | The confirm card read as the end of the turn | `_next_step` result says to call set_issue in the same turn; instruction rule; 9/9 on rerun |
 
 ---
 

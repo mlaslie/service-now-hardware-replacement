@@ -41,7 +41,8 @@ STATE_LABELS = {"1": "New", "2": "In Progress", "3": "On Hold", "6": "Resolved",
 STATE_CODES = {label.lower(): code for code, label in STATE_LABELS.items()}
 PRIORITY_LABELS = {"1": "1 - Critical", "2": "2 - High", "3": "3 - Moderate", "4": "4 - Low", "5": "5 - Planning"}
 # urgency -> (impact, urgency). ServiceNow derives priority from the pair.
-URGENCY_TO_IMPACT_URGENCY = {"critical": ("1", "1"), "high": ("1", "2"), "normal": ("2", "2"), "low": ("2", "3")}
+URGENCY_TO_IMPACT_URGENCY = {k: (v.impact, v.urgency)
+                             for k, v in _current_profile().servicenow.urgency_matrix.items()}
 
 _ASSET_FIELDS = ",".join([
     "sys_id", "asset_tag", "serial_number", "display_name", "model.display_name", "model.manufacturer.name",
@@ -356,6 +357,20 @@ async def create_incident(fields: dict) -> dict:
     result = await _request("POST", "/api/now/table/incident", json=fields,
                             params={"sysparm_fields": _INCIDENT_FIELDS, "sysparm_display_value": "false"})
     return _incident(result["result"])
+
+
+async def dropped_fields(sys_id: str, wanted: dict[str, str]) -> dict[str, str]:
+    """Fields ServiceNow didn't store as asked (it drops what a user may not set, silently)."""
+    if not wanted:
+        return {}
+    try:
+        result = await _request("GET", f"/api/now/table/incident/{sys_id}", params={
+            "sysparm_fields": ",".join(wanted), "sysparm_display_value": "false"})
+    except ServiceNowError as exc:
+        logger.info("could not read back configured fields: %s", exc)
+        return {}
+    stored = result.get("result") or {}
+    return {k: v for k, v in wanted.items() if str(_value(stored.get(k))) != str(v)}
 
 
 async def find_open_by_correlation(user_sys_id: str, correlation_id: str) -> dict | None:

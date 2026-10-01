@@ -190,6 +190,7 @@
       <li><a href="#configuration">Configuration</a></li>
       <li><a href="#roles">ServiceNow roles</a></li>
       <li><a href="#doctor">Check permissions</a></li>
+      <li><a href="#testing">Testing</a></li>
       <li><a href="#troubleshooting">Troubleshooting</a></li>
       <li><a href="#links">Reference links</a></li>
     </ol>
@@ -529,7 +530,7 @@ gcloud run services add-iam-policy-binding {SERVICE_NAME} --project {PROJECT_ID}
         <tbody>
           <tr><td><code>agent</code></td><td>Name, persona (how it talks), description and examples in Gemini Enterprise. <em>Re-add the agent after changing.</em></td></tr>
           <tr><td><code>branding.primary_color</code></td><td>Colour of forward buttons (<code>#RRGGBB</code>). Applies to primary buttons in the web app; others stay grey; fonts are Gemini Enterprise's.</td></tr>
-          <tr><td><code>servicenow</code></td><td>Ticket category; asset tables searched</td></tr>
+          <tr><td><code>servicenow</code></td><td>Ticket category; asset tables searched; <code>ticket_fields</code> (extra incident fields, fixed or templated like <code>{device_value}</code>, <code>{issue_value}</code>); <code>device_values</code> (device type &rarr; your field's value); <code>urgency_matrix</code></td></tr>
           <tr><td><code>devices</code></td><td>Which model categories are medical equipment; how asset tags look; refresh ages</td></tr>
           <tr><td><code>issues.personal</code>, <code>issues.equipment</code></td><td>Each problem button: label, photo required / recommended / optional / none and what to photograph, minimum urgency, replace, safety, fixed recommendation</td></tr>
           <tr><td><code>service</code></td><td>Response targets per priority, safety text, recommendation texts</td></tr>
@@ -541,6 +542,24 @@ gcloud run services add-iam-policy-binding {SERVICE_NAME} --project {PROJECT_ID}
     - {key: keyboard_trackpad, label: Keyboard or trackpad, photo: required,
        photo_of: "the keyboard, showing the broken or missing keys"}</pre></div>
       <p>Full reference with every field: <code>docs/CONFIGURATION.md</code>. Examples: <code>config/organization.yaml</code> (hospital), <code>config/examples/office.yaml</code>.</p>
+
+      <h3 id="sn-options">Use your ServiceNow's own options</h3>
+      <p>The agent has no ServiceNow credentials of its own, so it never reads choice lists while running. Instead an admin
+        <strong>checks</strong> the profile against the instance and <strong>imports</strong> a choice list when you want exactly your own options
+        shown (for example only your hardware types). Sign in once with <code>sn_seed.py login</code> (step 9).</p>
+      <div class="cmd-wrap"><div class="cmd-head"><span>shell</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd">uv run python scripts/sn_profile.py check
+uv run python scripts/sn_profile.py choices subcategory --dependent hardware
+uv run python scripts/sn_profile.py import-issues subcategory --dependent hardware --group personal</pre></div>
+      <p><code>check</code> confirms every field exists and every value the profile can write is a real choice. <code>import-issues</code> prints a
+        ready-to-paste <code>issues:</code> list (labels and order from ServiceNow, your photo and urgency rules kept). Then map it onto the ticket:</p>
+      <div class="cmd-wrap"><div class="cmd-head"><span>yaml · write the chosen problem, or the device type, to your field</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd">servicenow:
+  ticket_fields:
+    contact_type: self-service
+    subcategory: "{device_value}"      <span class="c"># or "{issue_value}" after import-issues</span>
+  device_values: {laptop: cpu, desktop: cpu, monitor: monitor, keyboard: keyboard, mouse: mouse}</pre></div>
+      <p>If ServiceNow refuses a configured field for a user, the ticket gets a note asking the service desk to set it.</p>
     </section>
 
     <!-- ================================================================ ROLES -->
@@ -548,34 +567,48 @@ gcloud run services add-iam-policy-binding {SERVICE_NAME} --project {PROJECT_ID}
       <h2>ServiceNow roles</h2>
       <p>The agent acts as the signed-in user, so their roles decide what works. Measured with
         <code>scripts/sn_doctor.py --matrix</code> (temporary users per role set, every agent call, read back as admin) on a
-        ServiceNow developer instance, 2026-09-30. Your ACLs may differ: <a href="#doctor">check yours</a>.</p>
+        ServiceNow developer instance, 2026-09-30 (custom role column: 2026-10-01). Your ACLs may differ: <a href="#doctor">check yours</a>.</p>
       <div class="table-wrap"><table id="matrix">
-        <thead><tr><th>What the agent does</th><th>No roles</th><th><code>itil</code></th><th><code>itil</code> + <code>sn_incident_write</code></th><th>+ <code>asset</code></th></tr></thead>
+        <thead><tr><th>What the agent does</th><th>No roles</th><th><code>u_hardware_requester</code></th><th><code>itil</code></th><th><code>itil</code> + <code>sn_incident_write</code></th><th>+ <code>asset</code></th></tr></thead>
         <tbody>
-          <tr><td>Who am I (every turn)</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
-          <tr><td>Read own group memberships</td><td>no</td><td>yes</td><td>yes</td><td>yes</td></tr>
-          <tr><td>List own devices</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
-          <tr><td>Find a device by tag</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
-          <tr><td>List a department's equipment</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
-          <tr><td>Read the device record (CI)</td><td>no</td><td>yes</td><td>yes</td><td>yes</td></tr>
-          <tr><td>Create a ticket</td><td>partly: drops urgency, description</td><td>yes</td><td>yes</td><td>yes</td></tr>
-          <tr><td>Add a note</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
-          <tr><td>Read notes</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
-          <tr><td>Attach a photo</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
-          <tr><td>Change status (reopen)</td><td>no</td><td>yes</td><td>yes</td><td>yes</td></tr>
-          <tr><td>Change urgency</td><td>no</td><td>yes</td><td>yes</td><td>yes</td></tr>
-          <tr><td>Change ship-to</td><td>no</td><td>yes</td><td>yes</td><td>yes</td></tr>
-          <tr><td>See someone else's open ticket</td><td>no</td><td>yes</td><td>yes</td><td>yes</td></tr>
-          <tr><td>Follow someone else's ticket</td><td>no</td><td>yes</td><td>yes</td><td>yes</td></tr>
-          <tr><td>Cancel own ticket</td><td>no</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Who am I (every turn)</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Read own group memberships</td><td>no</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>List own devices</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Find a device by tag</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>List a department's equipment</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Read the device record (CI)</td><td>no</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Create a ticket</td><td>partly: drops urgency, description</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Add a note</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Read notes</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Attach a photo</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Change status (reopen)</td><td>no</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Change urgency</td><td>no</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Change ship-to</td><td>no</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>See someone else's open ticket</td><td>no</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Follow someone else's ticket</td><td>no</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Cancel own ticket</td><td>no</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
         </tbody>
       </table></div>
-      <p><strong><code>itil</code> alone is enough for everything</strong> on this instance. With <strong>no roles</strong>, people can still report problems;
+      <p><strong><code>u_hardware_requester</code> alone, or <code>itil</code> alone, is enough for everything</strong> on this instance. With <strong>no roles</strong>, people can still report problems;
         what ServiceNow refuses, the agent handles: details go in the first note, changes become a note for the service desk (and the user is told),
         and equipment isn't matched to open tickets.</p>
       <div class="note warn"><p><strong>Licensing.</strong> <code>itil</code> is a fulfiller role and usually licensed per user. Granting it to every
         employee just for this agent is rarely right. For production, plan either no roles for requesters, or a small scripted REST API / Service Catalog
         item that sets ticket fields server-side. Check with your ServiceNow owner.</p></div>
+      <h3 id="custom-role">A custom role instead of <code>itil</code>: <code>u_hardware_requester</code></h3>
+      <p>Allows exactly what the agent does for a requester, on hardware tickets only: full details, urgency, status and cancel on
+        <em>their own</em> tickets; notes and following on open ones; reading device records and their own group memberships.
+        Only a session elevated to <code>security_admin</code> can create access rules, so it is a background script you run once:</p>
+      <ol>
+        <li>ServiceNow, as an admin: user menu &gt; <strong>Elevate role</strong> &gt; <code>security_admin</code>.</li>
+        <li><strong>System Definition &gt; Scripts - Background</strong>: paste <code>scripts/servicenow/create_hardware_requester_role.js</code>, <strong>Run script</strong>.
+          Safe to rerun; <code>remove_hardware_requester_role.js</code> undoes it.</li>
+      </ol>
+      <div class="cmd-wrap"><div class="cmd-head"><span>shell · check, grant, measure</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd">uv run python scripts/sn_custom_role.py status
+uv run python scripts/sn_custom_role.py grant {TEST_USER}
+uv run python scripts/sn_doctor.py --matrix --persona none --persona u_hardware_requester --persona itil</pre></div>
+
       <h3>Admin, one-time setup</h3>
       <div class="table-wrap"><table>
         <thead><tr><th>Task</th><th>Role</th></tr></thead>
@@ -603,6 +636,21 @@ uv run python scripts/sn_doctor.py --matrix --markdown docs/role-matrix.md</pre>
   FAIL  Read own group memberships       access denied
         -&gt; sys_user_grmember read: needs itil, group_viewer, sn_cmdb_user or user_admin.
   PART  Create a ticket                  dropped: urgency, description</pre></div>
+    </section>
+
+    <!-- ================================================================ TESTING -->
+    <section id="testing">
+      <h2>Testing</h2>
+      <p>Two layers. <strong>Unit and path tests</strong> run the tools against an in-memory ServiceNow (no network).
+        <strong>Model-routing checks</strong> run the real agent and model on scripted conversations and check which tools it calls:
+        typed tags, described equipment, a safety photo, "looks good" never changing the address, "ship it to my house", ticket updates,
+        off-topic requests. Run them after changing the persona, the problem choices or the code.</p>
+      <div class="cmd-wrap"><div class="cmd-head"><span>shell</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd">uv run --group seed pytest
+uv run python evals/run.py
+uv run python evals/run.py --repeat 3 safety     <span class="c"># one case, three times</span></pre></div>
+      <p>Cases live in <code>evals/cases.yaml</code>; each turn lists the tools that must (or must not) be called, their arguments, and what
+        the reply must show.</p>
     </section>
 
     <!-- ================================================================ TROUBLESHOOTING -->

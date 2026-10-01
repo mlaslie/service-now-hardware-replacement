@@ -123,6 +123,17 @@ Full steps, including ServiceNow and Gemini Enterprise registration: [docs/INSTA
 
 Every field: [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
+## Tests
+
+```bash
+uv run --group seed pytest          # unit and path tests (no network): tools, cards, profile, seed, checker
+uv run python evals/run.py          # model-routing checks: the real model, an in-memory ServiceNow
+```
+
+`evals/cases.yaml` holds the routing cases (typed tags, described equipment, safety photo, "looks
+good" never changing the address, ticket updates...). Run them after changing the instruction,
+the persona or the problem choices.
+
 ## ServiceNow permissions
 
 The agent acts as each signed-in user. `itil` enables every feature; no roles works with limits.

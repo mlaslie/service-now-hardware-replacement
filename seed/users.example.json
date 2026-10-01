@@ -17,8 +17,14 @@
       "zip": "64108",
       "country": "USA"
     },
-    "groups": ["Service Desk"],
-    "roles": ["itil", "sn_incident_write", "asset"]
+    "groups": [
+      "Service Desk"
+    ],
+    "roles": [
+      "itil",
+      "sn_incident_write",
+      "asset"
+    ]
   },
   {
     "user_name": "jane.doe",
@@ -37,6 +43,8 @@
       "zip": "64108",
       "country": "USA"
     },
-    "roles": ["itil", "sn_incident_write", "asset"]
+    "roles": [
+      "u_hardware_requester"
+    ]
   }
 ]

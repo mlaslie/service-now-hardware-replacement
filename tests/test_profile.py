@@ -113,3 +113,35 @@ def test_env_file_never_overrides(tmp_path, monkeypatch):
     monkeypatch.delenv("HW_TEST_B", raising=False)
     config.load_env_file(env)
     assert os.environ["HW_TEST_A"] == "already-set" and os.environ["HW_TEST_B"] == "quoted"
+
+
+@pytest.mark.parametrize("fields, message", [
+    ({"caller_id": "x"}, "set by the agent itself"),
+    ({"subcategory": "{device_typ}"}, "unknown placeholder"),
+])
+def test_ticket_field_mistakes_are_named(tmp_path, fields, message):
+    data = _hospital()
+    data["servicenow"]["ticket_fields"] = fields
+    with pytest.raises(profile.ProfileError, match=message):
+        profile.load(_write(tmp_path, data))
+
+
+def test_ticket_fields_render_and_skip_empty():
+    s = profile.load(HOSPITAL).servicenow
+    assert s.device_value("Laptop") == "cpu" and s.device_value("medical equipment") == ""
+    assert s.render_fields({"device_value": "cpu"}) == {"contact_type": "self-service", "subcategory": "cpu"}
+    assert s.render_fields({}) == {"contact_type": "self-service"}  # nothing to map: left unset
+
+
+def test_device_value_falls_back_to_model_category(tmp_path):
+    data = _hospital()
+    data["servicenow"]["device_values"] = {"Imaging Equipment": "imaging"}
+    s = profile.load(_write(tmp_path, data)).servicenow
+    assert s.device_value("medical equipment", "Imaging Equipment") == "imaging"
+
+
+def test_urgency_matrix_needs_every_level(tmp_path):
+    data = _hospital()
+    data["servicenow"]["urgency_matrix"].pop("low")
+    with pytest.raises(profile.ProfileError, match="low"):
+        profile.load(_write(tmp_path, data))

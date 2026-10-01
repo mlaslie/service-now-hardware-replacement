@@ -63,6 +63,9 @@ Your organization's name (shown in logs and the check summary).
 |---|---|
 | `ticket_category` | `incident.category` set on every ticket. Users only ever see tickets in this category. |
 | `asset_tables` | Tables searched for devices and equipment (default `alm_hardware`). Add a clinical device table if medical equipment lives elsewhere. |
+| `ticket_fields` | Extra incident fields set on every new ticket: fixed text, or placeholders filled per request: `{issue_key}` `{issue_value}` `{issue_label}` `{device_value}` `{device_type}` `{device_kind}` `{model_category}` `{department}` `{location}`. A field that comes out empty is left unset. Fields the agent manages itself (caller, category, description, impact, urgency, CI, watch list, state, correlation) can't be configured. If ServiceNow refuses a field for a user, the ticket gets a note asking the service desk to set it. Default: `contact_type: self-service`. |
+| `device_values` | Device type (`laptop`, `desktop`, `monitor`, `phone`, `tablet`, `medical equipment`...) or model category name -> the value for `{device_value}`. Unlisted types write nothing. |
+| `urgency_matrix` | The agent's urgency (`critical`/`high`/`normal`/`low`) -> incident `impact` and `urgency` (`"1"`-`"3"`); ServiceNow derives the priority from the pair. |
 
 ### `devices`
 | Field | Meaning |
@@ -85,6 +88,7 @@ entry is one button:
 | `replace` | Personal devices: the problem alone justifies a replacement |
 | `safety` | Shows `service.safety_text`; pair with `min_urgency: critical` |
 | `recommendation` | A fixed recommendation for this problem (e.g. remote diagnostics first) |
+| `servicenow_value` | What `{issue_value}` writes for this problem (default: the key); set by `import-issues` |
 
 ### `service`
 | Field | Meaning |
@@ -92,6 +96,31 @@ entry is one button:
 | `personal_response_targets`, `equipment_response_targets` | Text per ServiceNow priority `"1"`..`"4"`, shown as Expected / Target |
 | `safety_text` | What a person reporting a safety concern is told (and what the ticket records) |
 | `recommendations` | Texts for each fulfilment recommendation; `{cost_center}` is filled in |
+
+## Your ServiceNow's own options
+
+The agent has no ServiceNow credentials of its own, so it never reads choice lists at run time.
+An admin checks the profile against the instance, and imports a choice list when the
+organization wants exactly its own options (signs in like the seed tool):
+
+```bash
+uv run python scripts/sn_profile.py check                                   # every value vs. your instance
+uv run python scripts/sn_profile.py choices subcategory --dependent hardware  # what a field allows
+uv run python scripts/sn_profile.py import-issues subcategory --dependent hardware --group personal
+```
+
+`check` confirms the ticket category is a real category, the asset tables exist, every
+`ticket_fields` field exists, and every value the profile can write (fixed values,
+`device_values`, each problem's `servicenow_value`, the urgency matrix) is a valid choice.
+
+`import-issues` prints an `issues:` group built from the choice list (labels and order from
+ServiceNow, `servicenow_value` set, photo and urgency rules of matching existing entries kept).
+Paste it into the profile and map it onto the ticket, e.g. `ticket_fields: {subcategory: "{issue_value}"}`.
+
+**Example: "only show our hardware types".** The out-of-box `incident.subcategory` (dependent on
+category `hardware`) has CPU, Disk, Keyboard, Memory, Monitor, Mouse. The hospital profile maps
+device types onto it (`subcategory: "{device_value}"` with `laptop: cpu`, `monitor: monitor`...).
+A custom field such as `u_hardware_type` works the same way.
 
 ## Recipes
 

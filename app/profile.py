@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import functools
 import os
+import string
 import sys
 from pathlib import Path
 from typing import Literal
@@ -46,6 +47,7 @@ class Issue(_Strict):
     min_urgency: Urgency | None = Field(None, description="Urgency is raised to at least this")
     replace: bool = Field(False, description="Personal devices: the problem itself justifies a replacement")
     safety: bool = Field(False, description="Shows the safety text; use with min_urgency: critical")
+    servicenow_value: str = Field("", description="Value written for {issue_value} (default: the key)")
     recommendation: str = Field("", description="Fixed recommendation for this problem, e.g. remote diagnostics")
 
     @model_validator(mode="after")
@@ -91,9 +93,68 @@ class Branding(_Strict):
                                description="Colour of primary (forward) buttons, as #RRGGBB")
 
 
+# Fields the agent always sets itself; a profile may not override them.
+RESERVED_FIELDS = {"caller_id", "category", "short_description", "description", "impact", "urgency",
+                   "correlation_id", "correlation_display", "cmdb_ci", "watch_list", "state"}
+# Placeholders a ticket field template may use.
+TEMPLATE_KEYS = {"issue_key", "issue_value", "issue_label", "device_value", "device_type", "device_kind",
+                 "model_category", "department", "location"}
+
+
+class ImpactUrgency(_Strict):
+    impact: str = Field(pattern=r"^[1-3]$")
+    urgency: str = Field(pattern=r"^[1-3]$")
+
+
+def _default_matrix() -> dict:
+    pairs = {"critical": ("1", "1"), "high": ("1", "2"), "normal": ("2", "2"), "low": ("2", "3")}
+    return {k: ImpactUrgency(impact=i, urgency=u) for k, (i, u) in pairs.items()}
+
+
 class ServiceNowSettings(_Strict):
     ticket_category: str = Field("hardware", min_length=1, description="incident.category for every ticket")
     asset_tables: list[str] = Field(["alm_hardware"], min_length=1, description="Tables searched for devices")
+    ticket_fields: dict[str, str] = Field(
+        default_factory=lambda: {"contact_type": "self-service"},
+        description="Extra incident fields on every new ticket: fixed text or {placeholders}")
+    device_values: dict[str, str] = Field(
+        default_factory=dict, description="Device type or model category -> value for {device_value}")
+    urgency_matrix: dict[Urgency, ImpactUrgency] = Field(
+        default_factory=_default_matrix, description="Agent urgency -> incident impact and urgency")
+
+    @field_validator("ticket_fields")
+    @classmethod
+    def _fields(cls, value: dict[str, str]) -> dict[str, str]:
+        clash = sorted(set(value) & RESERVED_FIELDS)
+        if clash:
+            raise ValueError(f"{clash} are set by the agent itself and can't be configured")
+        for field_name, template in value.items():
+            names = {f for _, f, _, _ in string.Formatter().parse(template) if f}
+            unknown = sorted(names - TEMPLATE_KEYS)
+            if unknown:
+                raise ValueError(f"{field_name}: unknown placeholder(s) {unknown}; use {sorted(TEMPLATE_KEYS)}")
+        return value
+
+    @field_validator("urgency_matrix")
+    @classmethod
+    def _every_urgency(cls, value):
+        missing = [u for u in URGENCY_ORDER if u not in value]
+        if missing:
+            raise ValueError(f"needs impact/urgency for {missing}")
+        return value
+
+    def device_value(self, device_type: str, model_category: str = "") -> str:
+        lookup = {k.lower(): v for k, v in self.device_values.items()}
+        return lookup.get((device_type or "").lower()) or lookup.get((model_category or "").lower(), "")
+
+    def render_fields(self, values: dict[str, str]) -> dict[str, str]:
+        """The extra ticket fields with placeholders filled in; a field that renders empty is left out."""
+        out = {}
+        for field_name, template in self.ticket_fields.items():
+            text = template.format_map({k: values.get(k, "") or "" for k in TEMPLATE_KEYS}).strip()
+            if text:
+                out[field_name] = text
+        return out
 
 
 class Devices(_Strict):

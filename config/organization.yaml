@@ -48,6 +48,29 @@ servicenow:
   # Tables searched for devices and equipment. Add e.g. a clinical device table if medical
   # equipment is kept outside alm_hardware.
   asset_tables: [alm_hardware]
+  # Extra incident fields set on every new ticket: fixed text, or placeholders filled per request:
+  #   {issue_key} {issue_value} {issue_label}  the problem chosen ({issue_value} = its servicenow_value)
+  #   {device_value}  the device's type mapped through device_values below
+  #   {device_type} {device_kind} {model_category} {department} {location}
+  # A field that comes out empty is left unset. Check values against your instance:
+  #     uv run python scripts/sn_profile.py check
+  ticket_fields:
+    contact_type: self-service
+    subcategory: "{device_value}"       # out-of-box hardware subcategories: cpu, disk, keyboard, memory, monitor, mouse
+  # Device type (laptop, desktop, monitor, phone, tablet, medical equipment...) or model category
+  # -> the value to write. Types not listed write nothing.
+  device_values:
+    laptop: cpu
+    desktop: cpu
+    monitor: monitor
+    keyboard: keyboard
+    mouse: mouse
+  # The agent's urgency -> incident impact and urgency (ServiceNow derives priority from the pair).
+  urgency_matrix:
+    critical: {impact: "1", urgency: "1"}
+    high: {impact: "1", urgency: "2"}
+    normal: {impact: "2", urgency: "2"}
+    low: {impact: "2", urgency: "3"}
 
 devices:
   # Model categories that are medical equipment: repaired on site by the asset's support group.
