@@ -21,7 +21,7 @@ class FakeSN:
         self.tables: dict[str, dict[str, dict]] = {
             "sys_db_object": {"t1": {"sys_id": "t1", "name": "alm_license"}},
             "sys_user_role": {f"r{i}": {"sys_id": f"r{i}", "name": n} for i, n in enumerate(
-                ["itil", "sn_incident_write", "asset"])},
+                ["itil", "sn_incident_write", "asset", "u_hardware_requester"])},
             "cmdb_model_category": {f"c{i}": {"sys_id": f"c{i}", "name": n} for i, n in enumerate(
                 ["Computer", "Computer Monitor", "Computer Peripheral", "IP Phone", "Mobile Device", "Printer"])},
             "sys_user": {"u0": {"sys_id": "u0", "user_name": "abel.tuter", "first_name": "Abel"},
@@ -222,9 +222,11 @@ def test_roles_granted_and_removed(env):
     sn, users, _ = env
     sn_seed.cmd_set(sn, users, sn_seed.HERE / "catalog.json")
     jane = next(r for r in sn.tables["sys_user"].values() if r["user_name"] == "jane.doe")
-    assert {g["role"] for g in sn.tables["sys_user_has_role"].values() if g["user"] == jane["sys_id"]} == {"r0", "r1", "r2"}
+    roles = lambda uid: {g["role"] for g in sn.tables["sys_user_has_role"].values() if g["user"] == uid}  # noqa: E731
+    assert roles(jane["sys_id"]) == {"r3"}            # Jane: the custom requester role only
+    assert roles("u1") == {"r0", "r1", "r2"}         # John: itil, sn_incident_write, asset
     sn_seed.cmd_set(sn, users, sn_seed.HERE / "catalog.json")  # not granted twice
-    assert len(sn.tables["sys_user_has_role"]) == 6
+    assert len(sn.tables["sys_user_has_role"]) == 4
     sn_seed.cmd_reset(sn, yes=True, memory=False)
     assert not sn.tables["sys_user_has_role"]
 
