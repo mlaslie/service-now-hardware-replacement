@@ -5,5 +5,6 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY app ./app
+COPY config ./config
 ENV PORT=8080 PATH="/app/.venv/bin:$PATH"
 CMD exec uvicorn app.server:app --host 0.0.0.0 --port ${PORT} --timeout-keep-alive 75

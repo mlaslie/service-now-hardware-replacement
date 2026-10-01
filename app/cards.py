@@ -1,13 +1,16 @@
-"""A2UI v0.8 cards for each wizard step, built in Python.
+"""A2UI v0.9 cards for each wizard step, built in Python.
 
-Gemini Enterprise renders A2UI v0.8 (`beginRendering` + `surfaceUpdate`), and
-only the basic catalog. The cards are deterministic on purpose: the model
-decides which step comes next, but never writes UI JSON, so a card cannot
-drift into v0.9 message names, invent a catalog, or show a hallucinated value.
+Gemini Enterprise negotiates the A2UI version from the agent card (it declares
+v0.9, see server.py) and renders the v0.9 basic catalog in the web app. The
+cards are deterministic on purpose: the model decides which step comes next,
+but never writes UI JSON, so a card cannot mix versions, invent a catalog, or
+show a hallucinated value.
 
 Rules the renderer enforces, all handled here:
-- components are a flat list referenced by id; `beginRendering` comes first
-- every text is `{"literalString": ...}` and contains no markdown
+- every message carries "version": "v0.9"; `createSurface` (with the catalog) comes first
+- components are flat (`{"id", "component": "Text", "text": ...}`), referenced by
+  id, and one of them has id "root"
+- no markdown in text (kept out so the mobile text rendering stays clean too)
 - a fresh surfaceId per card, or GE rewrites the previous card in place
 """
 
@@ -15,43 +18,29 @@ import itertools
 import re
 import uuid
 
-BASIC_CATALOG_ID = "https://a2ui.org/specification/v0_8/basic_catalog.json"
+from app.profile import current as _current_profile
+
+PROFILE = _current_profile()
+
+A2UI_VERSION = "v0.9"
+BASIC_CATALOG_ID = "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"
 # Baptist Health South Florida palette (baptisthealth.net): the WCAG-safe brand
-# green, and the site's Poppins typeface. GE may apply its own theme on top.
-PRIMARY_COLOR = "#22873B"
+# green (v0.9 `theme.primaryColor`). The typeface is left to GE.
+PRIMARY_COLOR = PROFILE.branding.primary_color
 FONT = "Poppins, Helvetica, Arial, sans-serif"
 TOTAL_STEPS = 4
 PRIORITY_LABELS = {"1": "1 - Critical", "2": "2 - High", "3": "3 - Moderate", "4": "4 - Low", "5": "5 - Planning"}
 
-ISSUE_CATEGORIES = [
-    ("cracked_screen", "Cracked or broken screen"),
-    ("wont_power_on", "Won't turn on"),
-    ("battery", "Battery or charging"),
-    ("keyboard_trackpad", "Keyboard or trackpad"),
-    ("liquid_damage", "Liquid spill"),
-    ("physical_damage", "Other physical damage"),
-    ("performance", "Slow or freezing"),
-    ("other", "Something else"),
-]
+# Problem choices from the organization profile (config/organization.yaml).
+ISSUE_CATEGORIES = [(i.key, i.label) for i in PROFILE.issues.personal]
 # Shared and clinical equipment: repaired on site, so no laptop-style choices.
-EQUIPMENT_ISSUES = [
-    ("not_working", "Not working or won't turn on"),
-    ("error_alarm", "Error message or alarm"),
-    ("damaged", "Damaged or broken part"),
-    ("safety_concern", "Safety concern"),
-    ("other", "Something else"),
-]
-ISSUE_LABELS = dict(ISSUE_CATEGORIES) | dict(EQUIPMENT_ISSUES)
-SAFETY_TEXT = ("If it is safe to do so, take it out of service now and tag it \"Do not use\". If a patient or "
-               "staff member was harmed, also follow your safety event reporting process.")
+EQUIPMENT_ISSUES = [(i.key, i.label) for i in PROFILE.issues.equipment]
+ISSUE_LABELS = PROFILE.issue_labels
+SAFETY_TEXT = PROFILE.service.safety_text
 
 
 def is_equipment(device: dict) -> bool:
     return (device or {}).get("kind") in ("shared", "clinical")
-
-
-def _lit(value) -> dict:
-    return {"literalString": _plain(str(value))}
 
 
 def _plain(text: str) -> str:
@@ -60,44 +49,42 @@ def _plain(text: str) -> str:
 
 
 class Card:
-    """Accumulates components for one surface and emits the v0.8 message pair."""
+    """Accumulates components for one surface and emits the v0.9 message pair."""
 
     def __init__(self) -> None:
         self.surface_id = f"hw_{uuid.uuid4().hex[:8]}"
         self._ids = itertools.count()
         self.components: list[dict] = []
 
-    def _add(self, kind: str, props: dict) -> str:
-        cid = f"c{next(self._ids)}"
-        self.components.append({"id": cid, "component": {kind: props}})
+    def _add(self, kind: str, props: dict, cid: str = "") -> str:
+        cid = cid or f"c{next(self._ids)}"
+        self.components.append({"id": cid, "component": kind, **props})
         return cid
 
     def text(self, value: str, hint: str = "body") -> str:
-        return self._add("Text", {"text": _lit(value), "usageHint": hint})
+        return self._add("Text", {"text": _plain(str(value)), "variant": hint})
 
     def divider(self) -> str:
         return self._add("Divider", {"axis": "horizontal"})
 
     def column(self, children: list[str]) -> str:
-        return self._add("Column", {"children": {"explicitList": children}, "alignment": "stretch"})
+        return self._add("Column", {"children": children, "align": "stretch"})
 
     def row(self, children: list[str]) -> str:
-        return self._add("Row", {"children": {"explicitList": children}, "alignment": "center"})
+        return self._add("Row", {"children": children, "align": "center"})
 
-    def button(self, label: str, action: str, context: dict | None = None, primary: bool = False) -> str:
+    def button(self, label: str, action: str, context: dict | None = None, primary: bool = True) -> str:
+        """Green (primary, theme colour) by default: every step forward. Pass
+        primary=False for the ways back or out, which render grey."""
         label_id = self.text(label)
-        return self._add("Button", {
-            "child": label_id,
-            "primary": primary,
-            "action": {
-                "name": action,
-                "context": [{"key": k, "value": _lit(v)} for k, v in (context or {}).items()],
-            },
-        })
+        props = {"child": label_id,
+                 "action": {"event": {"name": action, "context": {k: str(v) for k, v in (context or {}).items()}}}}
+        if primary:
+            props["variant"] = "primary"
+        return self._add("Button", props)
 
     def field(self, label: str, value, missing: str = "Not provided") -> str:
-        """A 'Label: value' line. Empty values say so in words: a bare "-" is
-        rendered by GE as a markdown bullet."""
+        """A 'Label: value' line. Empty values say so in words, never blank or "-"."""
         return self.row([self.text(f"{label}:", "caption"), self.text(value or missing, "body")])
 
     def header(self, step: int | None, title: str, subtitle: str = "") -> list[str]:
@@ -110,13 +97,48 @@ class Card:
         return ids
 
     def build(self, children: list[str]) -> list[dict]:
-        column = self.column(children)
-        root = self._add("Card", {"child": column})
+        self._add("Card", {"child": self.column(children)}, cid="root")
         return [
-            {"beginRendering": {"surfaceId": self.surface_id, "root": root,
-                                "styles": {"primaryColor": PRIMARY_COLOR, "font": FONT}}},
-            {"surfaceUpdate": {"surfaceId": self.surface_id, "components": self.components}},
+            {"version": A2UI_VERSION, "createSurface": {
+                "surfaceId": self.surface_id, "catalogId": BASIC_CATALOG_ID,
+                "theme": {"primaryColor": PRIMARY_COLOR}}},
+            {"version": A2UI_VERSION, "updateComponents": {"surfaceId": self.surface_id, "components": self.components}},
         ]
+
+
+def components_of(messages: list[dict]) -> list[dict]:
+    return next((m["updateComponents"]["components"] for m in messages if "updateComponents" in m), [])
+
+
+V08_CATALOG_ID = "https://a2ui.org/specification/v0_8/basic_catalog.json"
+
+
+def to_v08(messages: list[dict]) -> list[dict]:
+    """The same card in A2UI v0.8, for a client that negotiated v0.8 (e.g. an
+    agent registration made before the card declared v0.9)."""
+    create = next(m["createSurface"] for m in messages if "createSurface" in m)
+    out = []
+    for comp in components_of(messages):
+        kind = comp["component"]
+        if kind == "Text":
+            props = {"text": {"literalString": comp["text"]}, "usageHint": comp.get("variant", "body")}
+        elif kind in ("Column", "Row"):
+            props = {"children": {"explicitList": list(comp["children"])}, "alignment": comp.get("align", "stretch")}
+        elif kind == "Button":
+            event = comp["action"]["event"]
+            props = {"child": comp["child"], "primary": comp.get("variant") == "primary", "action": {
+                "name": event["name"],
+                "context": [{"key": k, "value": {"literalString": v}} for k, v in (event.get("context") or {}).items()]}}
+        elif kind == "Divider":
+            props = {"axis": comp.get("axis", "horizontal")}
+        else:  # Card
+            props = {"child": comp["child"]}
+        out.append({"id": comp["id"], "component": {kind: props}})
+    return [
+        {"beginRendering": {"surfaceId": create["surfaceId"], "root": "root",
+                            "styles": {"primaryColor": PRIMARY_COLOR, "font": FONT}}},
+        {"surfaceUpdate": {"surfaceId": create["surfaceId"], "components": out}},
+    ]
 
 
 def _device_label(asset: dict) -> str:
@@ -163,7 +185,7 @@ def device_choices(title: str, assets: list[dict]) -> list[dict]:
         where = asset.get("location") or asset.get("department") or ""
         label = _device_line(asset) + (f"  |  {where}" if where else "")
         kids.append(c.button(label, "select_device", {"asset_tag": asset["asset_tag"]}))
-    kids.append(c.button("None of these", "different_device"))
+    kids.append(c.button("None of these", "different_device", primary=False))
     return c.build(kids)
 
 
@@ -179,8 +201,8 @@ def confirm_device(device: dict, note: str = "") -> list[dict]:
     kids.append(c.field("Belongs to", device.get("relation_text")))
     if note:
         kids.append(c.text(note, "caption"))
-    kids.append(c.row([c.button("Yes, that's it", "confirm_device", {"correct": "yes"}, primary=True),
-                       c.button("No, it's a different one", "confirm_device", {"correct": "no"})]))
+    kids.append(c.row([c.button("Yes, that's it", "confirm_device", {"correct": "yes"}),
+                       c.button("No, it's a different one", "confirm_device", {"correct": "no"}, primary=False)]))
     return c.build(kids)
 
 
@@ -196,8 +218,8 @@ def existing_tickets(device: dict, tickets: list[dict]) -> list[dict]:
                                                  f"Assigned to {t['assignment_group']}" if t.get("assignment_group")
                                                  else "Not yet assigned"])), "caption")]
     first = tickets[0]["number"]
-    kids.append(c.row([c.button(f"Add my note to {first}", "follow_ticket", {"number": first}, primary=True),
-                       c.button("Report separately", "report_separately")]))
+    kids.append(c.row([c.button(f"Add my note to {first}", "follow_ticket", {"number": first}),
+                       c.button("Report separately", "report_separately", primary=False)]))
     return c.build(kids)
 
 
@@ -213,7 +235,7 @@ def issue_picker(device: dict, suggestion: str = "") -> list[dict]:
     if suggestion and suggestion in ISSUE_LABELS:
         kids.append(c.text(f"From your photo it looks like: {ISSUE_LABELS[suggestion]}", "caption"))
     choices = EQUIPMENT_ISSUES if equipment else ISSUE_CATEGORIES
-    buttons = [c.button(label, "select_issue", {"category": key}, primary=(key == suggestion))
+    buttons = [c.button(label, "select_issue", {"category": key})
                for key, label in choices]
     # Two per row keeps eight options compact on a phone.
     for i in range(0, len(buttons), 2):
@@ -234,7 +256,7 @@ def photo_request(device: dict, issue_label: str, what_to_shoot: str, required: 
     if required:
         kids.append(c.text("A photo is required for this kind of damage.", "caption"))
     else:
-        kids.append(c.button("Skip the photo", "skip_photo"))
+        kids.append(c.button("Skip the photo", "skip_photo", primary=False))
     return c.build(kids)
 
 
@@ -243,7 +265,7 @@ def label_photo_request() -> list[dict]:
     kids = c.header(1, "Let's identify the device",
                     "Take a photo of the sticker with the asset tag or serial number. It's usually on the bottom of a laptop, the back of a monitor, or in Settings on a phone.")
     kids.append(c.text("Use the attach (+) button in the chat to add the photo.", "caption"))
-    kids.append(c.button("I can't find a label", "no_label"))
+    kids.append(c.button("I can't find a label", "no_label", primary=False))
     return c.build(kids)
 
 
@@ -252,7 +274,7 @@ def label_photo_request() -> list[dict]:
 
 def photo_findings(findings: dict, assets: list[dict], note: str) -> list[dict]:
     """Shown when a photo arrives before the device is known: what the photo
-    showed, then the user's devices, with the likely match highlighted."""
+    showed, then the user's devices, the likely match first."""
     c = Card()
     kids = c.header(None, "Here's what I found in your photo")
     kids += [c.field("Device", " ".join(filter(None, [findings.get("manufacturer"), findings.get("model")]))
@@ -266,11 +288,14 @@ def photo_findings(findings: dict, assets: list[dict], note: str) -> list[dict]:
     kids += [c.divider(), c.text("Which of your devices is this?", "h5")]
     maker = (findings.get("manufacturer") or "").lower()
     kind = (findings.get("device_type") or "").lower()
-    for asset in assets:
-        likely = bool(kind and asset.get("device_type") == kind
-                      and (not maker or maker in (asset.get("manufacturer") or "").lower()))
-        kids.append(c.button(_device_label(asset), "select_device", {"asset_tag": asset["asset_tag"]}, primary=likely))
-    kids.append(c.button("None of these", "different_device"))
+
+    def likely(asset: dict) -> bool:
+        return bool(kind and asset.get("device_type") == kind
+                    and (not maker or maker in (asset.get("manufacturer") or "").lower()))
+
+    for asset in sorted(assets, key=lambda a: not likely(a)):  # the likely match first
+        kids.append(c.button(_device_label(asset), "select_device", {"asset_tag": asset["asset_tag"]}))
+    kids.append(c.button("None of these", "different_device", primary=False))
     return c.build(kids)
 
 
@@ -309,21 +334,34 @@ def review(draft: dict, employee: dict) -> list[dict]:
                  c.field("Bill to", device.get("cost_center") or device.get("department"), "Set by the service desk"),
                  c.field("Reported by", f"{employee.get('name', '')} ({employee.get('email', '')})")]
     else:
+        delivery = draft.get("delivery") or {}
+        ship_to = delivery.get("address") or employee.get("location_address") or employee.get("location")
+        if delivery.get("label"):
+            ship_to = f"{delivery['label']}: {ship_to}"
         kids += [c.divider(), c.text("Fulfilment", "h5"),
                  c.field("Recommended", draft.get("recommendation")),
-                 c.field("Ship to", draft.get("delivery_location") or employee.get("location_address")
-                         or employee.get("location")),
+                 c.field("Ship to", ship_to),
                  c.field("Bill to", " / ".join(filter(None, [employee.get("cost_center"), employee.get("department")]))),
                  c.field("Requested by", f"{employee.get('name', '')} ({employee.get('email', '')})")]
-    if issue.get("category") == "safety_concern":
+    if PROFILE.is_safety(issue.get("category", "")):
         kids.append(c.text(f"Safety: {SAFETY_TEXT}", "body"))
     for warning in draft.get("warnings") or []:
         kids.append(c.text(f"Note: {warning}", "caption"))
 
     kids.append(c.row([
-        c.button("Submit request", "submit_ticket", primary=True),
-        c.button("Change something", "edit_request"),
+        c.button("Submit request", "submit_ticket"),
+        c.button("Change something", "edit_request", primary=False),
     ]))
+    if not equipment:
+        # Other places only on request: a click, never "looks good".
+        delivery = draft.get("delivery") or {}
+        for saved in draft.get("saved_addresses") or []:
+            if saved["address"] != delivery.get("address"):
+                kids.append(c.button(f"Ship to {saved.get('label') or 'saved address'} instead: {saved['address']}",
+                                     "choose_ship_to", {"address": saved["address"]}, primary=False))
+        if delivery.get("address"):
+            kids.append(c.button("Ship to my address on file instead", "choose_ship_to", {"address": ""},
+                                 primary=False))
     suggested = draft.get("suggested_device") or {}
     if suggested and suggested.get("asset_tag") != device.get("asset_tag"):
         kids.append(c.button(f"Use {_device_label(suggested)} instead", "select_device",
@@ -347,7 +385,7 @@ def confirmation(number: str, draft: dict) -> list[dict]:
         c.field("Recommended", draft.get("recommendation")),
         c.field("Expected", draft.get("sla")),
         c.divider(),
-        c.text(SAFETY_TEXT if (draft.get("issue") or {}).get("category") == "safety_concern" else
+        c.text(SAFETY_TEXT if PROFILE.is_safety((draft.get("issue") or {}).get("category", "")) else
                "If others report this equipment, they'll be offered to follow your ticket." if equipment else
                "Before your replacement arrives, make sure your files are synced to cloud storage.", "caption"),
         c.row([c.button("View my tickets", "list_tickets"), c.button("Start another request", "start_over")]),
@@ -374,9 +412,9 @@ def ticket_list(tickets: list[dict], include_closed: bool) -> list[dict]:
                      f"Reported by {t.get('caller') or 'someone else'}, you're following" if t.get("following") else ""])),
                      "caption"),
                  c.button("Details", "view_ticket", {"number": t["number"]})]
-    buttons = [c.button("Start a new request", "start_over", primary=not tickets)]
+    buttons = [c.button("Start a new request", "start_over")]
     if not include_closed:
-        buttons.insert(0, c.button("Include closed", "list_all_tickets"))
+        buttons.insert(0, c.button("Include closed", "list_all_tickets", primary=False))
     kids.append(c.row(buttons))
     return c.build(kids)
 
@@ -428,36 +466,31 @@ def ticket_detail(t: dict, notes: list[dict] | None = None, note: str = "", view
         kids.append(c.row([c.button("Add a note", "add_note", {"number": t["number"]}),
                            c.button("Change ship-to", "change_shipping", {"number": t["number"]})]))
         kids.append(c.row([c.button("Request urgent handling", "request_urgent", {"number": t["number"]}),
-                           c.button("Cancel request", "cancel_ticket", {"number": t["number"]})]))
-    kids.append(c.button("Back to my tickets", "list_tickets"))
+                           c.button("Cancel request", "cancel_ticket", {"number": t["number"]}, primary=False)]))
+    kids.append(c.button("Back to my tickets", "list_tickets", primary=False))
     return c.build(kids)
 
 
 def prepend_text(messages: list[dict], text: str) -> list[dict]:
     """Puts the model's short intro line at the top of a card.
 
-    Prose and A2UI in one response usually render as neither, so the model's
-    sentence travels inside the card as its first Text component.
+    The model's sentence travels inside the card as its first Text component,
+    so every reply is one card and nothing else.
     """
     text = _plain(" ".join(text.split()))
     if not text:
         return messages
-    begin = messages[0]["beginRendering"]
-    components = messages[1]["surfaceUpdate"]["components"]
+    components = components_of(messages)
     by_id = {c["id"]: c for c in components}
-    column = by_id[by_id[begin["root"]]["component"]["Card"]["child"]]["component"]["Column"]
-    components.append({"id": "intro", "component": {"Text": {"text": _lit(text), "usageHint": "body"}}})
-    column["children"]["explicitList"].insert(0, "intro")
+    column = by_id[by_id["root"]["child"]]
+    components.append({"id": "intro", "component": "Text", "text": text, "variant": "body"})
+    column["children"].insert(0, "intro")
     return messages
 
 
 def intro_of(messages: list[dict]) -> str:
     """The model's intro line inside a card, if `prepend_text` added one."""
-    for m in messages:
-        for comp in (m.get("surfaceUpdate") or {}).get("components", []):
-            if comp.get("id") == "intro":
-                return comp["component"]["Text"]["text"]["literalString"]
-    return ""
+    return next((c["text"] for c in components_of(messages) if c.get("id") == "intro"), "")
 
 
 # --- Text rendering (Gemini Enterprise mobile app: no A2UI) ------------------------
@@ -473,23 +506,22 @@ def to_text(messages: list[dict]) -> tuple[str, list[dict]]:
     line is its own paragraph, 'Label: value' rows are a bulleted list and the
     buttons a numbered list.
     """
-    begin = next(m["beginRendering"] for m in messages if "beginRendering" in m)
-    by_id = {c["id"]: c["component"] for m in messages for c in (m.get("surfaceUpdate") or {}).get("components", [])}
+    by_id = {c["id"]: c for c in components_of(messages)}
     blocks: list[tuple[str, str]] = []  # (kind, markdown): kind is para, field or option
     options: list[dict] = []
 
     def text_of(cid: str) -> str:
         comp = by_id.get(cid, {})
-        return comp["Text"]["text"].get("literalString", "").strip() if "Text" in comp else ""
+        return str(comp.get("text", "")).strip() if comp.get("component") == "Text" else ""
 
     def walk(cid: str) -> None:
-        comp = by_id.get(cid, {})
-        kind, props = next(iter(comp.items()), (None, {}))
+        props = by_id.get(cid, {})
+        kind = props.get("component")
         if kind == "Card":
             walk(props["child"])
         elif kind in ("Column", "Row"):
-            kids = props["children"]["explicitList"]
-            if kind == "Row" and kids and all("Text" in by_id.get(k, {}) for k in kids):
+            kids = props["children"]
+            if kind == "Row" and kids and all(by_id.get(k, {}).get("component") == "Text" for k in kids):
                 label, *rest = [text_of(k) for k in kids]
                 blocks.append(("field", f"- **{label}** {' '.join(rest)}".rstrip()))
             else:
@@ -498,15 +530,15 @@ def to_text(messages: list[dict]) -> tuple[str, list[dict]]:
         elif kind == "Text":
             value = text_of(cid)
             if value:
-                heading = (props.get("usageHint") or "").startswith("h")
+                heading = (props.get("variant") or "").startswith("h")
                 blocks.append(("para", f"**{value}**" if heading else value))
         elif kind == "Button":
-            action = props.get("action") or {}
-            context = {c["key"]: c["value"].get("literalString", "") for c in action.get("context", [])}
-            options.append({"label": text_of(props["child"]), "action": action.get("name", ""), "context": context})
+            event = (props.get("action") or {}).get("event") or {}
+            options.append({"label": text_of(props["child"]), "action": event.get("name", ""),
+                            "context": dict(event.get("context") or {})})
             blocks.append(("option", f"{len(options)}. {options[-1]['label']}"))
 
-    walk(begin["root"])
+    walk("root")
     if options:
         blocks.append(("para", "_Reply with a number, or just type your answer._"))
     out = ""

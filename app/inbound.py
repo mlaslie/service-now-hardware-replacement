@@ -50,10 +50,16 @@ async def save_photo_artifact(artifacts, *, app_name: str, user_id: str, session
             "uri": info.canonical_uri if info else "", "mime_type": mime_type, "bytes": len(data)}
 
 
+# Gemini Enterprise sends this text part alongside every A2UI v0.9 click.
+CLICK_ECHO = "User action triggered."
+
+
 def parse_user_action(data: dict) -> dict | None:
-    """Accepts both `{"userAction": ...}` and an already-wrapped `{"data": {...}}`."""
+    """A button click: `{"action": ...}` (A2UI v0.9) or `{"userAction": ...}` (v0.8),
+    possibly wrapped in `{"data": {...}}`."""
     inner = data.get("data") if isinstance(data.get("data"), dict) else data
-    return inner.get("userAction") or inner.get("user_action")
+    action = inner.get("action") or inner.get("userAction") or inner.get("user_action")
+    return action if isinstance(action, dict) and (action.get("name") or action.get("actionName")) else None
 
 
 def action_context(action: dict) -> dict:
@@ -109,6 +115,8 @@ async def rewrite_parts(parts: list[Part], upload) -> tuple[list[Part], list[dic
         else:
             out.append(part)
 
+    if any(t.root.text.startswith("[UI action]") for t in out if isinstance(t.root, TextPart)):
+        out = [t for t in out if not (isinstance(t.root, TextPart) and t.root.text == CLICK_ECHO)]
     if not out:
         # A message with no parts is rejected by the model API.
         out.append(Part(root=TextPart(text="(empty message)")))
@@ -123,6 +131,8 @@ async def rewrite_parts(parts: list[Part], upload) -> tuple[list[Part], list[dic
 # (measured 2026-09-26). So the first turn of each conversation asks, and the
 # answer is kept in session state.
 
+# The A2UI version the client requested this turn ("0.9", "0.8" or ""), from its A2A extensions.
+A2UI_VERSION_KEY = "a2ui_version"
 UI_MODE_KEY = "ui_mode"            # "cards" | "text" | "asking"
 UI_PENDING_KEY = "ui_pending"      # the first message, replayed once they answer
 UI_OPTIONS_KEY = "ui_options"      # numbered options of the last text card
@@ -178,3 +188,9 @@ def display_step(state: dict, text: str) -> tuple[str, dict]:
         if choice:
             return f"[UI action] {choice['action']} {json.dumps(choice['context'])}", {}
     return text, {}
+
+
+def requested_a2ui_version(extensions) -> str:
+    """The highest A2UI version among the A2A extensions the client requested."""
+    versions = [e.rsplit("/v", 1)[-1] for e in (extensions or []) if "a2ui.org/a2a-extension/a2ui/v" in e]
+    return max(versions, key=lambda v: tuple(int(x) for x in v.split(".") if x.isdigit()), default="")

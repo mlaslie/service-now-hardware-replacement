@@ -22,41 +22,21 @@ from google.adk.tools import ToolContext
 
 from app import cards, memory, servicenow, vision
 from app.cards import ISSUE_LABELS
+from app.profile import URGENCY_ORDER
 
 logger = logging.getLogger(__name__)
 
 CARD_KEY = "temp:card"
 
-# category -> (photo need, what to photograph)
-PHOTO_POLICY = {
-    "cracked_screen": ("required", "the screen, switched on if possible, so the cracks are visible"),
-    "physical_damage": ("required", "the damaged area, close enough to see it clearly"),
-    "liquid_damage": ("recommended", "where the liquid got in, plus any stains or corrosion"),
-    "battery": ("recommended", "the underside, and the trackpad if it looks lifted or the case bulges"),
-    "keyboard_trackpad": ("recommended", "the keyboard, showing the broken or missing keys"),
-    "other": ("optional", "whatever shows the problem"),
-    "wont_power_on": (None, ""),
-    "performance": (None, ""),
-    # Shared and clinical equipment.
-    "not_working": (None, ""),
-    "error_alarm": ("recommended", "the screen or panel showing the error or alarm"),
-    "damaged": ("recommended", "the damaged part, close enough to see it clearly"),
-    # Never slow down someone who should be taking unsafe equipment out of service.
-    "safety_concern": (None, ""),
-}
+# Problem choices, photo rules, urgency floors, service texts: config/organization.yaml.
+PROFILE = cards.PROFILE
 
 # Matches the priority ServiceNow derives from servicenow.URGENCY_TO_IMPACT_URGENCY.
 _PRIORITY = {"low": "4 - Low", "normal": "3 - Moderate", "high": "2 - High", "critical": "1 - Critical"}
-REFRESH_YEARS = {"laptop": 3, "desktop": 4, "monitor": 5, "phone": 2, "tablet": 3}
-# A device that cannot be used at all blocks the employee's work.
-_BLOCKING = {"wont_power_on", "liquid_damage", "cracked_screen", "not_working"}
-# Equipment is repaired on site; response targets by priority.
-_EQUIPMENT_SLA = {"1": "Response within 1 hour", "2": "Same day", "3": "Next business day", "4": "Within 3 business days"}
 # Words that don't help find equipment by description.
 _STOP_WORDS = {"the", "a", "an", "in", "on", "at", "of", "to", "is", "it", "its", "our", "my", "and", "or", "with",
                "has", "have", "not", "broken", "down", "working", "please", "there", "this", "that", "room", "bay",
                "floor", "unit", "department", "dept", "one", "machine", "device", "equipment"}
-_REPLACE = {"cracked_screen", "liquid_damage", "physical_damage", "wont_power_on"}
 
 
 # --- helpers ------------------------------------------------------------------
@@ -163,7 +143,8 @@ def eligibility(asset: dict) -> dict:
     if purchased:
         age = (today - purchased).days / 365.25
         out["age_years"] = round(age, 1)
-        out["refresh_eligible"] = age >= REFRESH_YEARS.get(asset.get("device_type", ""), 4)
+        years = PROFILE.devices.refresh_years.get(asset.get("device_type", ""), PROFILE.devices.default_refresh_years)
+        out["refresh_eligible"] = age >= years
     if out["refresh_eligible"]:
         out["summary"] = f"Refresh eligible ({out['age_years']} yrs old)"
     elif out["in_warranty"]:
@@ -310,6 +291,64 @@ def _query_words(description: str) -> list[str]:
     return [w for w in _words(description).split() if w not in _STOP_WORDS and (len(w) > 1 or w.isdigit())]
 
 
+# --- delivery addresses -------------------------------------------------------------
+# A ticket's ship-to is always a real street address: the one in ServiceNow, a saved
+# permanent address (verbatim, from memory.saved_addresses), or one the user typed.
+# Temporary places (hotels, events) are used once and never saved or suggested.
+
+_TEMPORARY = re.compile(r"\b(hotel|motel|inn|suites?|resort|lodge|marriott|hilton|hyatt|sheraton|westin|airbnb|"
+                        r"conference|convention|event|airport|temporary|temp)\b", re.I)
+_ADDRESS_ON_FILE = re.compile(r"\b(usual|default|on file|servicenow|original|regular|normal)\b", re.I)
+_PLACE_ALIASES = {"home": ("home", "house", "my place", "apartment", "residence"), "office": ("office", "work")}
+
+
+def _looks_like_street_address(text: str) -> bool:
+    return bool(re.search(r"\d", text)) and len(text.split()) >= 3
+
+
+def _canonical_place(text: str) -> str:
+    low = text.lower()
+    return next((name for name, words in _PLACE_ALIASES.items() if any(w in low for w in words)), "")
+
+
+def _match_saved(text: str, saved: list[dict]) -> dict | None:
+    """A saved address the user referred to: by its address, or by its label ("my house" -> Home)."""
+    key, place = memory.normalize_address(text), _canonical_place(text)
+    for a in saved:
+        label = (a.get("label") or "").lower()
+        if key and key == memory.normalize_address(a["address"]):
+            return a
+        if label and (label in text.lower() or (place and _canonical_place(label) == place)):
+            return a
+    return None
+
+
+def _set_delivery(draft: dict, address: str = "", label: str = "", kind: str = "", saved: bool = False) -> None:
+    if not address:
+        draft.pop("delivery", None)
+        draft.pop("delivery_location", None)
+        return
+    draft["delivery"] = {"address": address, "label": label, "kind": kind, "saved": saved}
+    draft["delivery_location"] = address
+
+
+async def _resolve_address(email: str, text: str, label: str = "", kind: str = "",
+                           saved: list[dict] | None = None) -> dict:
+    """{"address", "label", "kind", "saved"} for what the user asked, or {"error": ...}."""
+    text = " ".join((text or "").split())
+    saved = saved if saved is not None else await memory.saved_addresses(email)
+    match = _match_saved(text, saved) or (_match_saved(label, saved) if label else None)
+    if match:
+        return {"address": match["address"], "label": match.get("label", ""), "kind": "permanent", "saved": True}
+    if not _looks_like_street_address(text):
+        return {"error": f"{text!r} is not a street address. Ask for the full address (street, city, state, "
+                         "ZIP). Nothing was changed."}
+    if kind not in ("permanent", "temporary"):
+        kind = "temporary" if _TEMPORARY.search(f"{text} {label}") else "permanent"
+    return {"address": text, "label": (label or _canonical_place(label or text).title()).strip(), "kind": kind,
+            "saved": False}
+
+
 def _refresh(draft: dict, employee: dict) -> dict:
     """Derives priority, recommendation, SLA and warnings from what is known."""
     issue = draft.get("issue") or {}
@@ -318,33 +357,34 @@ def _refresh(draft: dict, employee: dict) -> dict:
     evidence = draft.get("evidence") or {}
 
     urgency = issue.get("urgency", "normal")
-    if category == "safety_concern":
-        urgency = "critical"
-    elif category in _BLOCKING and urgency in ("low", "normal"):
-        urgency = "high"
-    draft["priority"] = _PRIORITY.get(urgency, _PRIORITY["normal"])
+    if urgency not in URGENCY_ORDER:
+        urgency = "normal"
+    floor = PROFILE.min_urgency(category)  # e.g. a safety concern is always critical
+    if floor and URGENCY_ORDER.index(floor) > URGENCY_ORDER.index(urgency):
+        urgency = floor
+    draft["priority"] = _PRIORITY[urgency]
     device = draft.get("device") or {}
+    texts = PROFILE.service.recommendations
+    chosen = PROFILE.issue(category)
 
     if cards.is_equipment(device):
         # Who does it is its own line ("Handled by").
-        rec = "Remove from service, then on-site repair" if category == "safety_concern" else "On-site repair"
+        rec = texts.equipment_safety if PROFILE.is_safety(category) else texts.equipment_repair
     elif elig.get("refresh_eligible"):
-        rec = "Replace with current standard model (refresh eligible, no cost to department)"
-    elif category in _REPLACE or evidence.get("supports_replacement"):
-        rec = ("Warranty replacement" if elig.get("in_warranty")
-               else f"Replacement, charged to {employee.get('cost_center', 'department')}")
-    elif category == "performance":
-        rec = "Remote diagnostics first; replace if unresolved"
+        rec = texts.refresh
+    elif (chosen and chosen.replace) or evidence.get("supports_replacement"):
+        rec = (texts.warranty_replacement if elig.get("in_warranty")
+               else texts.charged_replacement.format(cost_center=employee.get("cost_center") or "department"))
+    elif chosen and chosen.recommendation:
+        rec = chosen.recommendation
     elif elig.get("in_warranty"):
-        rec = "Warranty repair with a loaner device"
+        rec = texts.warranty_repair
     else:
-        rec = "Repair assessment; replace if repair is uneconomical"
+        rec = texts.repair_assessment
     draft["recommendation"] = rec
-    if cards.is_equipment(device):
-        draft["sla"] = _EQUIPMENT_SLA.get(draft["priority"][0], "Next business day")
-    else:
-        draft["sla"] = ("Next business day" if draft["priority"].startswith(("1", "2"))
-                        else "2-3 business days")
+    targets = (PROFILE.service.equipment_response_targets if cards.is_equipment(device)
+               else PROFILE.service.personal_response_targets)
+    draft["sla"] = targets[draft["priority"][0]]
 
     warnings = list(draft.get("photo_warnings") or [])
     if draft.get("match_note"):
@@ -359,7 +399,7 @@ def _refresh(draft: dict, employee: dict) -> dict:
     mismatch = _photo_mismatch(draft)
     if mismatch:
         warnings.append(mismatch)
-    need, _ = PHOTO_POLICY.get(category, (None, ""))
+    need, _ = PROFILE.photo_policy(category)
     if need == "required" and not evidence:
         warnings.append("A photo of the damage is still needed before this can be submitted.")
     draft["warnings"] = warnings
@@ -389,11 +429,17 @@ def _photo_mismatch(draft: dict) -> str:
 
 async def _review(ctx: ToolContext, draft: dict, employee: dict) -> dict:
     draft = _refresh(draft, employee)
+    if "saved_addresses" not in draft and not cards.is_equipment(draft.get("device") or {}):
+        on_file = memory.normalize_address(employee.get("location_address", ""))
+        draft["saved_addresses"] = [a for a in await memory.saved_addresses(employee.get("email", ""))
+                                    if memory.normalize_address(a["address"]) != on_file][:3]
     _save(ctx, draft)
     _show(ctx, cards.review(draft, employee))
+    ship_to = (draft.get("delivery") or {}).get("address") or employee.get("location_address") or employee.get("location")
     return {"status": "ok", "step": "review", "shown": "review card with Submit and Change buttons",
             "priority": draft["priority"], "recommendation": draft["recommendation"],
-            "warnings": draft["warnings"]}
+            "warnings": draft["warnings"], "ship_to": ship_to,
+            "saved_addresses_offered_as_buttons": draft.get("saved_addresses", [])}
 
 
 async def _next_step(ctx: ToolContext, draft: dict, employee: dict) -> dict:
@@ -420,7 +466,7 @@ async def _next_step(ctx: ToolContext, draft: dict, employee: dict) -> dict:
     if not issue:
         _show(ctx, cards.issue_picker(device, (draft.get("evidence") or {}).get("category", "")))
         return {"status": "ok", "step": "describe_issue", "device": device.get("model")}
-    need, what = PHOTO_POLICY.get(issue["category"], ("optional", "the problem"))
+    need, what = PROFILE.photo_policy(issue["category"])
     if need and not draft.get("evidence") and not draft.get("photo_skipped"):
         _show(ctx, cards.photo_request(device, ISSUE_LABELS.get(issue["category"], "The problem"), what, need == "required"))
         return {"status": "ok", "step": "photo", "photo": need}
@@ -444,7 +490,7 @@ async def start_request(tool_context: ToolContext) -> dict:
     _save(tool_context, draft)
     tool_context.state["last_photo_ids"] = []
     result = await _next_step(tool_context, draft, employee)
-    remembered = await memory.recall(tool_context, employee["email"])
+    remembered = await memory.recall(tool_context, employee["email"])  # addresses are filtered out
     return result | {"employee": {k: employee.get(k) for k in ("name", "department", "location")},
                      "remembered_about_user": remembered}
 
@@ -559,10 +605,8 @@ async def set_issue(category: str, description: str, urgency: str, tool_context:
     """Records what is wrong, then shows the photo step if useful, otherwise the review.
 
     Args:
-        category: For the user's own devices: cracked_screen, wont_power_on, battery,
-            keyboard_trackpad, liquid_damage, physical_damage, performance, other. For shared or
-            medical equipment: not_working, error_alarm, damaged, safety_concern, other. Use
-            safety_concern whenever a patient or staff member is, or could be, put at risk.
+        category: For the user's own devices: {PERSONAL_ISSUES}. For shared or
+            equipment: {EQUIPMENT_ISSUES}. {SAFETY_RULE}
         description: The problem in the user's own words, lightly cleaned up. Use the
             category label if they only clicked a button.
         urgency: low, normal, high or critical. Infer it from what they said: "I have a
@@ -657,7 +701,7 @@ async def analyze_photos(tool_context: ToolContext) -> dict:
                 "severity": f["damage_severity"], "category": f["issue_category"],
                 "supports_replacement": f["supports_replacement"], "photo_uri": photo["uri"],
             }
-        elif draft.get("issue") and PHOTO_POLICY.get(draft["issue"]["category"], (None,))[0] == "required" \
+        elif draft.get("issue") and PROFILE.photo_policy(draft["issue"]["category"])[0] == "required" \
                 and f["image_kind"] not in ("label",):
             photo_warnings.append("The photo didn't clearly show the damage; the desk may ask for another.")
             draft["evidence"] = {"summary": "Photo provided; damage not clearly visible", "severity": "none",
@@ -691,14 +735,19 @@ async def skip_photo(tool_context: ToolContext) -> dict:
 
 @servicenow_errors
 async def update_request(tool_context: ToolContext, description: str = "", urgency: str = "",
-                         category: str = "", delivery_location: str = "") -> dict:
+                         category: str = "", delivery_location: str = "", delivery_label: str = "",
+                         delivery_kind: str = "") -> dict:
     """Changes details on the request, then shows the review card again.
 
     Args:
         description: New problem description, if the user changed it.
         urgency: low, normal, high or critical, if the user changed it.
         category: New issue category, if the user changed it.
-        delivery_location: Where the replacement should go, if not their usual office.
+        delivery_location: Only when the user asked to ship somewhere else: the full street
+            address as they typed it, or their words for a saved place ("my house"), which is
+            looked up. "my usual address" goes back to the address on file.
+        delivery_label: A short name for a new address, e.g. "Home", "Denver office", "Hotel".
+        delivery_kind: "permanent" (home, an office) or "temporary" (hotel, event, trip).
     """
     employee = await _employee(tool_context)
     if not employee:
@@ -714,7 +763,37 @@ async def update_request(tool_context: ToolContext, description: str = "", urgen
     if issue:
         draft["issue"] = issue
     if delivery_location:
-        draft["delivery_location"] = delivery_location.strip()
+        if _ADDRESS_ON_FILE.search(delivery_location) and not _looks_like_street_address(delivery_location):
+            _set_delivery(draft)
+        else:
+            found = await _resolve_address(employee["email"], delivery_location, delivery_label, delivery_kind,
+                                           draft.get("saved_addresses"))
+            if "error" in found:
+                _save(tool_context, draft)
+                return {"status": "need_address", "message": found["error"]}
+            _set_delivery(draft, **found)
+    return await _next_step(tool_context, draft, employee)
+
+
+@servicenow_errors
+async def choose_ship_to(address: str, tool_context: ToolContext) -> dict:
+    """The user picked where to ship from the review card: a saved address, or "" for the
+    address on file in ServiceNow.
+
+    Args:
+        address: The saved address from the button, or "" for the address on file.
+    """
+    employee = await _employee(tool_context)
+    if not employee:
+        return _no_identity(tool_context)
+    draft = _draft(tool_context)
+    if not address:
+        _set_delivery(draft)
+    else:
+        match = _match_saved(address, draft.get("saved_addresses") or await memory.saved_addresses(employee["email"]))
+        if not match:
+            return {"status": "not_found", "message": "That saved address wasn't found. Ask for the full address."}
+        _set_delivery(draft, match["address"], match.get("label", ""), "permanent", saved=True)
     return await _next_step(tool_context, draft, employee)
 
 
@@ -742,7 +821,7 @@ async def submit_ticket(tool_context: ToolContext) -> dict:
     if not draft.get("device") or not draft.get("issue"):
         return await _next_step(tool_context, draft, employee)
     draft = _refresh(draft, employee)
-    need, _ = PHOTO_POLICY.get(draft["issue"]["category"], (None, ""))
+    need, _ = PROFILE.photo_policy(draft["issue"]["category"])
     if need == "required" and not draft.get("evidence"):
         return await _next_step(tool_context, draft, employee)
 
@@ -813,6 +892,9 @@ async def submit_ticket(tool_context: ToolContext) -> dict:
     draft["submitted_number"] = ticket["number"]
     draft["submitted_url"] = ticket["url"]
     _save(tool_context, draft)
+    delivery = draft.get("delivery") or {}
+    if delivery.get("kind") == "permanent" and not delivery.get("saved"):
+        await memory.save_address(employee["email"], delivery.get("label", ""), delivery["address"])
     await memory.remember_conversation(tool_context, employee["email"])
     _show(tool_context, cards.confirmation(ticket["number"], draft))
     return {"status": "submitted", "ticket": ticket["number"], "priority": draft["assigned_priority"],
@@ -861,7 +943,7 @@ def _ticket_description(draft: dict, employee: dict) -> str:
         ]
     lines += ["", f"Reported by: {employee.get('name', '')} ({employee.get('email', '')}), "
                   f"{employee.get('title') or 'no title'}, {employee.get('department') or 'no department'}"]
-    if issue["category"] == "safety_concern":
+    if PROFILE.is_safety(issue["category"]):
         lines += ["", f"SAFETY CONCERN. The reporter was told: {cards.SAFETY_TEXT}"]
     if evidence:
         lines += ["", f"Photo evidence: {evidence.get('summary')}"]
@@ -1059,9 +1141,16 @@ async def update_ticket(number: str, tool_context: ToolContext, note: str = "", 
         status: New status: New, In Progress, On Hold or Resolved (e.g. to reopen a resolved
             ticket, use In Progress). To cancel, use cancel_ticket.
         urgency: low, normal, high or critical.
-        ship_to: A new full shipping address, accepted as typed.
+        ship_to: The new shipping address: a full street address, or the user's words for a
+            saved place ("my house"), which is looked up.
     """
     changes = []
+    if ship_to:
+        employee = await _employee(tool_context)
+        found = await _resolve_address((employee or {}).get("email", ""), ship_to)
+        if "error" in found:
+            return {"status": "need_address", "message": found["error"]}
+        ship_to = found["address"]
     if status:
         ch = _state_change(status, note)
         if not ch:
@@ -1104,7 +1193,7 @@ async def change_ticket_shipping(number: str, address: str, tool_context: ToolCo
 
     Args:
         number: The incident number.
-        address: The full new shipping address, accepted as typed.
+        address: The full street address, or the user's words for a saved place ("my house").
     """
     return await update_ticket(number, tool_context, ship_to=address)
 
@@ -1187,7 +1276,15 @@ async def report_separately(tool_context: ToolContext) -> dict:
     return await _next_step(tool_context, draft, employee)
 
 
+# set_issue's argument docs list this organization's problem choices (config/organization.yaml).
+_safety_keys = [i.key for i in PROFILE.issues.equipment + PROFILE.issues.personal if i.safety]
+set_issue.__doc__ = (set_issue.__doc__
+                     .replace("{PERSONAL_ISSUES}", ", ".join(PROFILE.keys("personal")))
+                     .replace("{EQUIPMENT_ISSUES}", ", ".join(PROFILE.keys("equipment")))
+                     .replace("{SAFETY_RULE}", f"Use {' or '.join(dict.fromkeys(_safety_keys))} whenever a person is, "
+                              "or could be, put at risk." if _safety_keys else ""))
+
 ALL_TOOLS = [start_request, select_device, find_device, confirm_device, request_label_photo, set_issue,
-             analyze_photos, skip_photo, update_request, show_review, submit_ticket, follow_ticket, report_separately,
+             analyze_photos, skip_photo, update_request, choose_ship_to, show_review, submit_ticket, follow_ticket, report_separately,
              list_my_tickets, get_ticket, update_ticket, add_ticket_note, change_ticket_shipping,
              request_urgent_handling, cancel_ticket]

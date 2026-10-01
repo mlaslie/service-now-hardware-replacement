@@ -1,0 +1,786 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hardware Replacement Agent Docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Sans+Condensed:wght@600&display=swap">
+<style>
+  :root {
+    color-scheme: light;
+    --ground: #F4F7F5; --surface: #FFFFFF; --ink: #17231D; --muted: #56655D; --line: #D6E0DA;
+    --accent: #1F7A36; --accent-soft: #E1F0E5; --accent-ink: #FFFFFF;
+    --code-bg: #0F1914; --code-ink: #E3EDE7; --code-muted: #8FA59A;
+    --val: #8BDDA2; --val-missing: #F4B868; --missing-soft: #FFF3E2; --missing-ink: #8A4B00;
+    --yes: #1F7A36; --yes-soft: #E1F0E5; --no: #A1332A; --no-soft: #FBE7E4; --part: #8A5A10; --part-soft: #F7EEDC;
+    --focus: #1F6FEB;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --cond: "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground: #0F1512; --surface: #161F1B; --ink: #E3ECE7; --muted: #9AABA2; --line: #283630;
+      --accent: #56C476; --accent-soft: #1A3223; --accent-ink: #0F1512;
+      --code-bg: #0A100D; --code-ink: #E3EDE7; --code-muted: #7F958A;
+      --missing-soft: #33261A; --missing-ink: #F4B868;
+      --yes: #6FD08C; --yes-soft: #1A3223; --no: #F08A7E; --no-soft: #3A1E1B; --part: #E6B560; --part-soft: #33291A;
+      --focus: #7FB0E8;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #0F1512; --surface: #161F1B; --ink: #E3ECE7; --muted: #9AABA2; --line: #283630;
+    --accent: #56C476; --accent-soft: #1A3223; --accent-ink: #0F1512;
+    --code-bg: #0A100D; --code-ink: #E3EDE7; --code-muted: #7F958A;
+    --missing-soft: #33261A; --missing-ink: #F4B868;
+    --yes: #6FD08C; --yes-soft: #1A3223; --no: #F08A7E; --no-soft: #3A1E1B; --part: #E6B560; --part-soft: #33291A;
+    --focus: #7FB0E8;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-padding-top: 72px; -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font: 400 15.5px/1.6 var(--sans); }
+  a { color: var(--accent); text-underline-offset: 2px; }
+  a.ext::after { content: " \2197"; font-size: .85em; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+  code { font: 400 .88em/1.4 var(--mono); background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+
+  /* top bar */
+  .topbar {
+    position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; display: flex; align-items: center; gap: 14px;
+    padding: 12px 16px; background: color-mix(in srgb, var(--ground) 90%, transparent);
+    backdrop-filter: blur(8px); border-bottom: 1px solid var(--line);
+  }
+  .brand { font: 600 17px/1 var(--cond); letter-spacing: .02em; }
+  .brand span { color: var(--accent); }
+  .topbar .spacer { flex: 1; }
+  .btn { font: 500 13.5px/1 var(--sans); color: var(--ink); background: var(--surface); border: 1px solid var(--line);
+         border-radius: 6px; padding: 8px 12px; cursor: pointer; }
+  .btn:hover { border-color: var(--muted); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  #navToggle { display: none; }
+
+  /* layout */
+  .layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 40px; max-width: 1180px; margin: 0 auto; padding: 0 16px; }
+  nav.side { position: sticky; top: 64px; align-self: start; max-height: calc(100vh - 80px); overflow: auto; padding: 24px 0; }
+  nav.side ol { list-style: none; margin: 0; padding: 0; }
+  nav.side li a { display: block; padding: 5px 10px; border-radius: 6px; color: var(--muted); text-decoration: none; font-size: 14.5px; }
+  nav.side li a:hover { color: var(--ink); background: var(--surface); }
+  nav.side li a.active { color: var(--ink); background: var(--accent-soft); font-weight: 600; }
+  nav.side li ol a { padding-left: 24px; font-size: 13.5px; }
+  nav.side .label { font: 600 11.5px/1 var(--cond); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 16px 10px 6px; }
+  main { min-width: 0; padding: 24px 0 96px; }
+  article { max-width: 820px; }
+  section { padding-top: 12px; }
+  h1 { font: 600 38px/1.1 var(--cond); margin: 18px 0 12px; text-wrap: balance; letter-spacing: -.01em; }
+  h2 { font: 600 26px/1.2 var(--cond); margin: 48px 0 10px; padding-top: 12px; border-top: 2px solid var(--ink); text-wrap: balance; }
+  h3 { font: 600 18px/1.3 var(--sans); margin: 28px 0 8px; text-wrap: balance; }
+  p, li { max-width: 72ch; }
+  .lede { font-size: 17.5px; color: var(--muted); max-width: 64ch; }
+  .eyebrow { font: 600 12px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+
+  .cards3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 20px 0; }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+  .tile b { display: block; font: 600 15px/1.3 var(--sans); margin-bottom: 4px; }
+  .tile p { margin: 0; color: var(--muted); font-size: 14px; }
+
+  /* your values */
+  .values { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin: 18px 0 8px; }
+  .values h3 { margin: 0 0 4px; }
+  .values .hint { color: var(--muted); font-size: 13.5px; margin: 0 0 12px; }
+  .grid-inputs { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px 14px; }
+  .field label { display: block; font: 600 12px/1.2 var(--cond); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+  .field input { width: 100%; font: 400 14px/1.3 var(--mono); padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--ground); color: var(--ink); }
+  .field small { color: var(--muted); font-size: 12px; }
+  .values .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+  .status { font-size: 13px; color: var(--muted); }
+
+  /* commands */
+  .cmd-wrap { position: relative; margin: 10px 0 14px; border-radius: 8px; background: var(--code-bg); border: 1px solid var(--line); }
+  .cmd-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 6px 12px;
+              border-bottom: 1px solid color-mix(in srgb, var(--code-muted) 30%, transparent); }
+  .cmd-head span { font: 500 11.5px/1 var(--mono); color: var(--code-muted); text-transform: uppercase; letter-spacing: .08em; }
+  .copy { font: 500 12.5px/1 var(--sans); color: var(--code-ink); background: transparent; border: 1px solid color-mix(in srgb, var(--code-muted) 50%, transparent);
+          border-radius: 5px; padding: 6px 10px; cursor: pointer; }
+  .copy:hover { border-color: var(--code-ink); }
+  .copy.ok { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  pre.cmd { margin: 0; padding: 12px 14px; overflow-x: auto; color: var(--code-ink); font: 400 13.5px/1.55 var(--mono); white-space: pre; }
+  pre.cmd .v { color: var(--val); }
+  pre.cmd .v.missing { color: var(--val-missing); text-decoration: underline dotted; }
+  pre.cmd .c { color: var(--code-muted); }
+
+  /* steps */
+  .step { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 4px 18px 10px; margin: 16px 0; transition: opacity .2s; }
+  .step h3 { display: flex; align-items: center; gap: 10px; margin: 14px 0 6px; }
+  .step h3 .num { font: 600 13px/1 var(--mono); color: var(--accent-ink); background: var(--accent); border-radius: 50%;
+                  width: 26px; height: 26px; display: inline-grid; place-items: center; flex: 0 0 auto; }
+  .step h3 label { margin-left: auto; font: 500 13px/1 var(--sans); color: var(--muted); display: flex; gap: 6px; align-items: center; cursor: pointer; }
+  .step h3 input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .step.done { opacity: .6; }
+  .step.done h3 .num { background: var(--muted); }
+  .progress { font: 500 13px/1 var(--mono); color: var(--muted); }
+
+  /* tables */
+  .table-wrap { overflow-x: auto; margin: 12px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  tr:last-child td { border-bottom: 0; }
+  th { font: 600 12px/1.3 var(--cond); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); background: var(--ground); }
+  td code { white-space: nowrap; }
+  .chip { display: inline-block; font: 600 12px/1 var(--sans); padding: 4px 8px; border-radius: 99px; white-space: nowrap; }
+  .chip.yes { color: var(--yes); background: var(--yes-soft); }
+  .chip.no { color: var(--no); background: var(--no-soft); }
+  .chip.part { color: var(--part); background: var(--part-soft); }
+
+  .note { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 14px 0; }
+  .note.warn { border-color: var(--part); background: var(--part-soft); }
+  .note p { margin: 0; }
+  .diagram { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 12px 0 6px; overflow-x: auto; }
+  .diagram pre.mermaid { margin: 0; background: transparent; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  figcaption { color: var(--muted); font-size: 13.5px; margin-bottom: 14px; }
+  .toast { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%);
+           background: var(--ink); color: var(--ground); padding: 10px 14px; border-radius: 8px; font-size: 14px; z-index: 50; }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    #navToggle { display: inline-block; }
+    nav.side { display: none; position: fixed; inset: 56px 0 0 0; max-height: none; background: var(--ground); padding: 12px 16px 40px; z-index: 15; overflow: auto; }
+    nav.side.open { display: block; }
+    h1 { font-size: 30px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } html { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <button class="btn" id="navToggle" type="button" aria-expanded="false" aria-controls="sidenav">Menu</button>
+  <div class="brand">Hardware Replacement <span>Agent</span></div>
+  <div class="spacer"></div>
+  <a class="btn primary" href="#values">Your values</a>
+</header>
+
+<div class="layout">
+  <nav class="side" id="sidenav" aria-label="Contents">
+    <div class="label">Understand</div>
+    <ol>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#architecture">Architecture</a>
+        <ol>
+          <li><a href="#arch-pieces">The pieces</a></li>
+          <li><a href="#arch-turn">One turn</a></li>
+          <li><a href="#arch-flow">A request</a></li>
+          <li><a href="#arch-change">Changing a ticket</a></li>
+          <li><a href="#arch-signin">Sign-in</a></li>
+          <li><a href="#modules">Module map</a></li>
+        </ol>
+      </li>
+    </ol>
+    <div class="label">Install</div>
+    <ol>
+      <li><a href="#values">Your values</a></li>
+      <li><a href="#install">Install, step by step</a></li>
+      <li><a href="#deploy-options">Deploy options</a></li>
+    </ol>
+    <div class="label">Operate</div>
+    <ol>
+      <li><a href="#configuration">Configuration</a></li>
+      <li><a href="#roles">ServiceNow roles</a></li>
+      <li><a href="#doctor">Check permissions</a></li>
+      <li><a href="#troubleshooting">Troubleshooting</a></li>
+      <li><a href="#links">Reference links</a></li>
+    </ol>
+  </nav>
+
+  <main id="top">
+  <article>
+    <!-- ================================================================ OVERVIEW -->
+    <section id="overview">
+      <div class="eyebrow">Gemini Enterprise · ServiceNow · Cloud Run</div>
+      <h1>Hardware Replacement Agent</h1>
+      <p class="lede">Employees report broken hardware in a sentence or a photo, from the Gemini Enterprise web or
+        mobile app. The agent finds the device, checks it with them, files a ServiceNow ticket <em>as that person</em>,
+        routes equipment to the team that fixes it, and answers "any update?" at any time.</p>
+      <div class="cards3">
+        <div class="tile"><b>Understand</b><p>Five diagrams and a map of which file does what.</p><p><a href="#architecture">Architecture</a></p></div>
+        <div class="tile"><b>Install</b><p>Fill in your values once; every command below updates to match.</p><p><a href="#values">Start installing</a></p></div>
+        <div class="tile"><b>Customize</b><p>Names, colour, problem choices and rules live in one YAML file.</p><p><a href="#configuration">Configuration</a></p></div>
+      </div>
+      <p>The agent holds <strong>no ServiceNow credentials</strong>: each user signs in to ServiceNow through Gemini
+        Enterprise, and every call uses their own token, so ServiceNow's permissions decide what they can do
+        (<a href="#roles">measured role matrix</a>).</p>
+    </section>
+
+    <!-- ================================================================ ARCHITECTURE -->
+    <section id="architecture">
+      <h2>Architecture</h2>
+      <h3 id="arch-pieces">The pieces</h3>
+      <figure class="diagram"><pre class="mermaid">
+flowchart LR
+  user([Employee]) -->|chat, photos, clicks| ge[Gemini Enterprise&lt;br/&gt;web or mobile app]
+  ge -->|"A2A message/stream + user's ServiceNow token"| run[Cloud Run&lt;br/&gt;hardware-replacement-agent]
+  run -->|Table API as the user| sn[(ServiceNow)]
+  run -->|chat + photo reading| gem[Gemini model]
+  run -->|conversations, memory| ar[(Agent Runtime&lt;br/&gt;Sessions + Memory Bank)]
+  run -->|photos| gcs[(Cloud Storage)]
+  cfg[/organization.yaml/] -.->|names, colour, choices, rules| run
+</pre></figure>
+      <figcaption>Cloud Run runs the agent; Agent Runtime only stores conversations and memory (it runs no code).</figcaption>
+      <ul>
+        <li><strong>Gemini Enterprise</strong> signs each user in to ServiceNow (OAuth authorization code) and forwards their token with every message.</li>
+        <li><strong>Cloud Run</strong> runs the ADK agent behind an A2A server. Only Gemini Enterprise's service agent may call it.</li>
+        <li>The agent stays on Cloud Run because an A2A agent on Agent Runtime doesn't receive the user's credential (measured).</li>
+      </ul>
+
+      <h3 id="arch-turn">One turn</h3>
+      <figure class="diagram"><pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant GE as Gemini Enterprise
+  participant S as server.py (A2A)
+  participant SN as ServiceNow
+  participant A as agent.py (model + tools)
+  GE->>S: message, photo or click + user's token
+  S->>SN: who is this? (current_user)
+  SN-->>S: name, email, department, location, groups
+  S->>S: stage photos, turn clicks into text, first turn asks Desktop or Mobile
+  S->>A: run the turn
+  A->>SN: tools read and write as the user
+  A-->>S: the card a tool staged (A2UI, or numbered text on mobile)
+  S-->>GE: one reply
+</pre></figure>
+      <figcaption>The model chooses tools; Python builds every card (<code>app/cards.py</code>), so a card can't be malformed.</figcaption>
+
+      <h3 id="arch-flow">A request, step by step</h3>
+      <figure class="diagram"><pre class="mermaid">
+stateDiagram-v2
+  [*] --> ChooseDevice
+  ChooseDevice --> Confirm: picked, typed, described
+  ChooseDevice --> Problem: exact tag photo
+  Confirm --> ChooseDevice: No
+  Confirm --> AlreadyReported: equipment with an open ticket
+  Confirm --> Problem: Yes
+  AlreadyReported --> Following: Add my note
+  AlreadyReported --> Problem: Report separately
+  Problem --> Photo: photo needed
+  Problem --> Review: no photo needed
+  Photo --> Review
+  Review --> Submitted: Submit
+  Submitted --> [*]
+  Following --> [*]
+</pre></figure>
+      <figcaption>Known steps are skipped: one sentence can go straight to review. Personal devices are replaced and shipped; shared and clinical equipment is repaired on site by its support group.</figcaption>
+
+      <h3 id="arch-change">Changing a ticket: attempt, verify, say what happened</h3>
+      <figure class="diagram"><pre class="mermaid">
+flowchart TD
+  ask["'the tracking number doesn't work, reopen it'"] --> upd[update_ticket: note + status]
+  upd --> patch[change the ticket as the user]
+  patch --> read[read it back]
+  read --> cmp{did it stick?}
+  cmp -->|yes| done[tell the user it changed]
+  cmp -->|no| note[note for the service desk]
+  note --> tell[tell the user: not changed, noted]
+</pre></figure>
+      <figcaption>ServiceNow drops fields a user may not set without an error, so nothing is reported as done until it is read back.</figcaption>
+
+      <h3 id="arch-signin">Sign-in and identity</h3>
+      <figure class="diagram"><pre class="mermaid">
+sequenceDiagram
+  participant U as User
+  participant GE as Gemini Enterprise
+  participant SN as ServiceNow OAuth
+  participant R as Cloud Run agent
+  U->>GE: first message
+  GE->>U: Authorize
+  U->>SN: sign in as themselves
+  SN-->>GE: token (scope useraccount)
+  GE->>R: every message carries the user's token
+  R->>SN: calls with that token
+</pre></figure>
+      <figcaption>The token lives for one request only: never in session state, memory or logs.</figcaption>
+
+      <h3 id="modules">Module map: to change X, look in Y</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>To change</th><th>Look in</th></tr></thead>
+        <tbody>
+          <tr><td>Names, colour, problem choices, photo and urgency rules, texts</td><td><code>config/organization.yaml</code> (no code)</td></tr>
+          <tr><td>Project, region, ServiceNow instance, model</td><td><code>.env</code></td></tr>
+          <tr><td>Routing rules the model follows</td><td><code>app/agent.py</code> (persona: the profile)</td></tr>
+          <tr><td>Card layout</td><td><code>app/cards.py</code></td></tr>
+          <tr><td>Steps, device matching, ownership, addresses, ticket changes</td><td><code>app/tools.py</code></td></tr>
+          <tr><td>ServiceNow calls and field mapping</td><td><code>app/servicenow.py</code></td></tr>
+          <tr><td>Photos in, clicks in, desktop/mobile question</td><td><code>app/inbound.py</code></td></tr>
+          <tr><td>Photo reading</td><td><code>app/vision.py</code></td></tr>
+          <tr><td>Memory, saved addresses</td><td><code>app/memory.py</code></td></tr>
+          <tr><td>A2A server and agent card</td><td><code>app/server.py</code></td></tr>
+          <tr><td>Deploy, setup, permission check, demo data</td><td><code>scripts/</code>, <code>seed/</code></td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <!-- ================================================================ VALUES -->
+    <section id="values">
+      <h2>Your values</h2>
+      <p>Fill these in once. Every command, URL and the <code>.env</code> file on this page update as you type.
+        Blanks stay <span style="color:var(--missing-ink);background:var(--missing-soft);padding:0 4px;border-radius:3px">highlighted</span> in commands.
+        Values are kept in this browser only.</p>
+      <div class="values">
+        <div class="grid-inputs">
+          <div class="field"><label for="v-PROJECT_ID">Project ID</label><input id="v-PROJECT_ID" data-var="PROJECT_ID" placeholder="acme-it-agents" autocomplete="off"></div>
+          <div class="field"><label for="v-PROJECT_NUMBER">Project number</label><input id="v-PROJECT_NUMBER" data-var="PROJECT_NUMBER" placeholder="123456789012" autocomplete="off"><small>From the command below</small></div>
+          <div class="field"><label for="v-REGION">Region</label><input id="v-REGION" data-var="REGION" placeholder="us-central1" value="us-central1" autocomplete="off"></div>
+          <div class="field"><label for="v-SERVICE_NAME">Cloud Run service</label><input id="v-SERVICE_NAME" data-var="SERVICE_NAME" value="hardware-replacement-agent" autocomplete="off"></div>
+          <div class="field"><label for="v-INSTANCE">ServiceNow instance</label><input id="v-INSTANCE" data-var="INSTANCE" placeholder="https://acme.service-now.com" autocomplete="off"></div>
+          <div class="field"><label for="v-CLIENT_ID">ServiceNow OAuth client ID</label><input id="v-CLIENT_ID" data-var="CLIENT_ID" placeholder="from step 2" autocomplete="off"></div>
+          <div class="field"><label for="v-TEST_USER">A ServiceNow user to check</label><input id="v-TEST_USER" data-var="TEST_USER" placeholder="jane.doe" autocomplete="off"></div>
+          <div class="field"><label for="v-REPO_DIR">Folder for the code</label><input id="v-REPO_DIR" data-var="REPO_DIR" value="service-now-hardware-replacement" autocomplete="off"></div>
+        </div>
+        <div class="row">
+          <button class="btn" id="clearValues" type="button">Clear values</button>
+          <span class="status" id="valuesStatus"></span>
+        </div>
+      </div>
+      <div class="cmd-wrap"><div class="cmd-head"><span>shell · look up the project number</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd">gcloud projects describe {PROJECT_ID} --format='value(projectNumber)'</pre></div>
+      <p>Derived: service URL <code class="live" data-tpl="{SERVICE_URL}"></code></p>
+    </section>
+
+    <!-- ================================================================ INSTALL -->
+    <section id="install">
+      <h2>Install, step by step</h2>
+      <p>About an hour. You need a Google Cloud project with billing (an Owner account is simplest),
+        <a class="ext" href="https://docs.cloud.google.com/sdk/docs/install-sdk" target="_blank" rel="noopener">the gcloud CLI</a>,
+        <a class="ext" href="https://docs.astral.sh/uv/getting-started/installation/" target="_blank" rel="noopener">uv</a>,
+        a <a class="ext" href="https://docs.cloud.google.com/gemini/enterprise/docs" target="_blank" rel="noopener">Gemini Enterprise</a> app you administer,
+        and admin access to ServiceNow. <span class="progress" id="installProgress"></span></p>
+
+      <div class="step" data-step="code"><h3><span class="num">1</span>Get the code<label><input type="checkbox"> Done</label></h3>
+        <div class="cmd-wrap"><div class="cmd-head"><span>shell</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd">git clone https://github.com/OWNER/service-now-hardware-replacement.git {REPO_DIR}
+cd {REPO_DIR}
+uv sync</pre></div>
+      </div>
+
+      <div class="step" data-step="servicenow"><h3><span class="num">2</span>ServiceNow: sign-in client and roles<label><input type="checkbox"> Done</label></h3>
+        <ol>
+          <li><strong>OAuth client for Gemini Enterprise.</strong> In ServiceNow: <em>System OAuth &gt; Application Registry &gt; New &gt;
+            Create an OAuth API endpoint for external clients</em>. Keep it active, grant type <strong>authorization code</strong>,
+            redirect URLs below. Copy the <strong>client ID</strong> into <a href="#values">your values</a> and keep the secret for step 7.
+            Google's walkthrough of the same client: <a class="ext" href="https://docs.cloud.google.com/gemini/enterprise/docs/connectors/servicenow/third-party-config" target="_blank" rel="noopener">ServiceNow configuration</a>.
+            An existing Gemini Enterprise ServiceNow connector's client works too.</li>
+        </ol>
+        <div class="cmd-wrap"><div class="cmd-head"><span>redirect URLs (one field, comma-separated)</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd">https://vertexaisearch.cloud.google.com/console/oauth/default_oauth.html,https://vertexaisearch.cloud.google.com/oauth-redirect</pre></div>
+        <ol start="2">
+          <li><strong>Requester roles.</strong> <code>itil</code> gives every feature; no roles works with limits; mind licensing. See <a href="#roles">ServiceNow roles</a>.</li>
+          <li><strong>Optional</strong>, for demo data and the permission checker: a second client the same way, redirect URL
+            <code>http://localhost:8765/callback</code>, stored in Secret Manager
+            (<a class="ext" href="https://docs.cloud.google.com/secret-manager/docs/create-secret-quickstart" target="_blank" rel="noopener">Secret Manager quickstart</a>):</li>
+        </ol>
+        <div class="cmd-wrap"><div class="cmd-head"><span>shell · replace CLIENT_SECRET, and the ID if it's the second client</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd">printf '%s' '{INSTANCE}|{CLIENT_ID}|CLIENT_SECRET' | gcloud secrets create servicenow-seed-oauth --data-file=- --project {PROJECT_ID}</pre></div>
+      </div>
+
+      <div class="step" data-step="settings"><h3><span class="num">3</span>Settings: <code>.env</code><label><input type="checkbox"> Done</label></h3>
+        <p>Create <code>.env</code> in the repository folder with this content (built from your values). <code>AGENT_ENGINE_ID</code> is filled in by step 4.</p>
+        <div class="cmd-wrap"><div class="cmd-head"><span>.env</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd"># Deployment settings; see docs/CONFIGURATION.md
+GOOGLE_CLOUD_PROJECT={PROJECT_ID}
+SN_INSTANCE_URL={INSTANCE}
+AGENT_ENGINE_ID=
+REGION={REGION}
+SERVICE_NAME={SERVICE_NAME}</pre></div>
+        <p>Or: <code>cp .env.example .env</code> and edit. Every variable: <a href="#configuration">Configuration</a>.</p>
+      </div>
+
+      <div class="step" data-step="setup"><h3><span class="num">4</span>Google Cloud setup (once)<label><input type="checkbox"> Done</label></h3>
+        <div class="cmd-wrap"><div class="cmd-head"><span>shell</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd">gcloud auth login
+gcloud auth application-default login
+gcloud config set project {PROJECT_ID}
+./scripts/setup.sh</pre></div>
+        <p><code>setup.sh</code> is safe to rerun. It
+          <a class="ext" href="https://docs.cloud.google.com/service-usage/docs/enable-disable" target="_blank" rel="noopener">enables the APIs</a>,
+          <a class="ext" href="https://docs.cloud.google.com/storage/docs/creating-buckets" target="_blank" rel="noopener">creates the photo bucket</a>,
+          <a class="ext" href="https://docs.cloud.google.com/iam/docs/service-accounts-create" target="_blank" rel="noopener">creates the service account</a>
+          <code>hardware-agent</code> (Vertex AI user, log writer, bucket object access), and creates the Agent Runtime instance that
+          holds <a class="ext" href="https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/sessions" target="_blank" rel="noopener">Sessions</a>
+          and <a class="ext" href="https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/memory-bank" target="_blank" rel="noopener">Memory Bank</a>,
+          writing <code>AGENT_ENGINE_ID</code> into <code>.env</code>.</p>
+      </div>
+
+      <div class="step" data-step="profile"><h3><span class="num">5</span>Your organization profile<label><input type="checkbox"> Done</label></h3>
+        <p>Edit <code>config/organization.yaml</code> (a hospital example) or start from the office example: agent name, button colour,
+          problem choices, texts. <a href="#configuration">Every field</a>.</p>
+        <div class="cmd-wrap"><div class="cmd-head"><span>shell</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd"><span class="c"># optional: start from the generic office profile</span>
+cp config/examples/office.yaml config/organization.yaml
+uv run python -m app.profile</pre></div>
+      </div>
+
+      <div class="step" data-step="deploy"><h3><span class="num">6</span>Deploy<label><input type="checkbox"> Done</label></h3>
+        <div class="cmd-wrap"><div class="cmd-head"><span>shell</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd">./scripts/deploy.sh</pre></div>
+        <p>Checks the profile, <a class="ext" href="https://docs.cloud.google.com/run/docs/deploying-source-code" target="_blank" rel="noopener">deploys from source</a>
+          to a private Cloud Run service, passes the settings as
+          <a class="ext" href="https://docs.cloud.google.com/run/docs/configuring/services/environment-variables" target="_blank" rel="noopener">environment variables</a>,
+          and <a class="ext" href="https://docs.cloud.google.com/run/docs/securing/managing-access" target="_blank" rel="noopener">grants <code>roles/run.invoker</code></a>
+          to Gemini Enterprise's service agent. Rerun after any code or configuration change.</p>
+      </div>
+
+      <div class="step" data-step="register"><h3><span class="num">7</span>Register in Gemini Enterprise<label><input type="checkbox"> Done</label></h3>
+        <p>Get the agent card:</p>
+        <div class="cmd-wrap"><div class="cmd-head"><span>shell</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd">curl -s -H "Authorization: Bearer $(gcloud auth print-identity-token)" {SERVICE_URL}/.well-known/agent-card.json</pre></div>
+        <p>Google Cloud console &gt; <strong>Gemini Enterprise</strong> &gt; your app &gt; <strong>Agents</strong> &gt; <strong>Add Agents</strong> &gt;
+          <strong>Custom agent via A2A</strong> &gt; <strong>Add</strong>, paste the card into <strong>Agent card JSON</strong>
+          (<a class="ext" href="https://docs.cloud.google.com/gemini/enterprise/docs/register-and-manage-an-a2a-agent" target="_blank" rel="noopener">Register and manage A2A agents</a>,
+          <a class="ext" href="https://docs.cloud.google.com/gemini/enterprise/docs/a2ui-agents/register-and-manage-an-a2ui-agent" target="_blank" rel="noopener">agents using A2UI</a>).
+          Then add an authorization:</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Field</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td>Client ID / secret</td><td>From step 2</td></tr>
+            <tr><td>Scope</td><td><code>useraccount</code></td></tr>
+          </tbody>
+        </table></div>
+        <div class="cmd-wrap"><div class="cmd-head"><span>authorization URL</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd">{AUTH_URL}</pre></div>
+        <div class="cmd-wrap"><div class="cmd-head"><span>token URL</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd">{INSTANCE}/oauth_token.do</pre></div>
+        <div class="note warn"><p>One authorization belongs to one agent. To change an agent's card or authorization, delete and re-add the agent.
+          Users should authorize in a browser <strong>not</strong> signed in to ServiceNow as an admin, or the agent acts as the admin.</p></div>
+      </div>
+
+      <div class="step" data-step="try"><h3><span class="num">8</span>Try it<label><input type="checkbox"> Done</label></h3>
+        <p>In Gemini Enterprise, open the agent, send <em>"my laptop screen is cracked"</em>, click <strong>Authorize</strong>, sign in to ServiceNow as yourself,
+          answer <strong>2</strong> (desktop). You should see your devices. From a terminal (answers as anonymous without a user token):</p>
+        <div class="cmd-wrap"><div class="cmd-head"><span>shell</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd">uv run python scripts/chat.py --url {SERVICE_URL} --token "$(gcloud auth print-identity-token)"</pre></div>
+        <p>Logs (<a class="ext" href="https://docs.cloud.google.com/run/docs/logging" target="_blank" rel="noopener">Cloud Run logging</a>,
+          <a class="ext" href="https://docs.cloud.google.com/logging/docs/view/logging-query-language" target="_blank" rel="noopener">query language</a>):</p>
+        <div class="cmd-wrap"><div class="cmd-head"><span>shell</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd">gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="{SERVICE_NAME}"' --project {PROJECT_ID} --freshness=1h</pre></div>
+      </div>
+
+      <div class="step" data-step="doctor"><h3><span class="num">9</span>Check your users' permissions<label><input type="checkbox"> Done</label></h3>
+        <div class="cmd-wrap"><div class="cmd-head"><span>shell · sign in once as a ServiceNow admin</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd">uv run --group seed python seed/sn_seed.py login
+uv run python scripts/sn_doctor.py --as {TEST_USER}</pre></div>
+        <p>See <a href="#doctor">Check permissions</a>.</p>
+      </div>
+
+      <div class="step" data-step="demo"><h3><span class="num">10</span>Optional: demo data<label><input type="checkbox"> Done</label></h3>
+        <div class="cmd-wrap"><div class="cmd-head"><span>shell</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd">uv run --group seed python seed/sn_seed.py set seed/users.example.json
+uv run --group seed python seed/sn_seed.py report</pre></div>
+        <p>Creates two users, their office kit and a demo hospital's equipment; <code>reset --yes</code> removes all of it. Demo script: <code>demo/DEMO.html</code>.</p>
+      </div>
+    </section>
+
+    <section id="deploy-options">
+      <h2>Deploy options</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Option</th><th>Use it when</th></tr></thead>
+        <tbody>
+          <tr><td><code>./scripts/deploy.sh</code> (supported)</td><td>Always, to start. Reads <code>.env</code>, checks the profile, deploys, grants Gemini Enterprise access. Idempotent.</td></tr>
+          <tr><td><code>gcloud run deploy --source .</code> by hand</td><td>You want to see or change every flag; the script is a readable wrapper around it.</td></tr>
+          <tr><td><code>adk deploy cloud_run</code>, <code>agents-cli deploy</code></td><td>Not a fit: this agent is a custom A2A server that passes the user's ServiceNow token through, which those tools don't set up.</td></tr>
+          <tr><td>Terraform</td><td>On the backlog (G2.4) for organizations that require infrastructure as code.</td></tr>
+        </tbody>
+      </table></div>
+      <div class="cmd-wrap"><div class="cmd-head"><span>shell · the core of deploy.sh, by hand</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd">gcloud run deploy {SERVICE_NAME} --source . --project {PROJECT_ID} --region {REGION} \
+  --service-account hardware-agent@{PROJECT_ID}.iam.gserviceaccount.com \
+  --no-allow-unauthenticated --memory 1Gi --concurrency 4 --timeout 300 --min-instances 1 \
+  --set-env-vars "GOOGLE_CLOUD_PROJECT={PROJECT_ID},SN_INSTANCE_URL={INSTANCE},AGENT_ENGINE_ID=<from .env>,SERVICE_URL={SERVICE_URL}"
+gcloud run services add-iam-policy-binding {SERVICE_NAME} --project {PROJECT_ID} --region {REGION} \
+  --member serviceAccount:service-{PROJECT_NUMBER}@gcp-sa-discoveryengine.iam.gserviceaccount.com --role roles/run.invoker</pre></div>
+    </section>
+
+    <!-- ================================================================ CONFIGURATION -->
+    <section id="configuration">
+      <h2>Configuration</h2>
+      <p>Two files: <code>.env</code> says <em>where</em> the agent runs (never committed);
+        <code>config/organization.yaml</code> says <em>what</em> it says and does for your organization (committed). Check the profile any time:</p>
+      <div class="cmd-wrap"><div class="cmd-head"><span>shell</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd">uv run python -m app.profile</pre></div>
+      <h3>Deployment settings (<code>.env</code>)</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Variable</th><th>Default</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>GOOGLE_CLOUD_PROJECT</code></td><td>required</td><td>Project that runs the agent</td></tr>
+          <tr><td><code>SN_INSTANCE_URL</code></td><td>required</td><td><code>https://&lt;name&gt;.service-now.com</code></td></tr>
+          <tr><td><code>AGENT_ENGINE_ID</code></td><td>required</td><td>Agent Runtime instance; <code>setup.sh</code> creates it</td></tr>
+          <tr><td><code>REGION</code></td><td><code>us-central1</code></td><td>Cloud Run, bucket, Agent Runtime</td></tr>
+          <tr><td><code>SERVICE_NAME</code></td><td><code>hardware-replacement-agent</code></td><td>Cloud Run service</td></tr>
+          <tr><td><code>MODEL</code>, <code>GOOGLE_CLOUD_LOCATION</code></td><td><code>gemini-3.8-flash</code>, <code>global</code></td><td>Chat and photo model, and where it is served</td></tr>
+          <tr><td><code>ARTIFACT_BUCKET</code></td><td><code>&lt;project&gt;-hardware-ticket-photos</code></td><td>Photo bucket</td></tr>
+          <tr><td><code>ORGANIZATION_PROFILE</code></td><td><code>config/organization.yaml</code></td><td>Which profile to load</td></tr>
+        </tbody>
+      </table></div>
+      <h3>Organization profile (<code>config/organization.yaml</code>)</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Block</th><th>Controls</th></tr></thead>
+        <tbody>
+          <tr><td><code>agent</code></td><td>Name, persona (how it talks), description and examples in Gemini Enterprise. <em>Re-add the agent after changing.</em></td></tr>
+          <tr><td><code>branding.primary_color</code></td><td>Colour of forward buttons (<code>#RRGGBB</code>). Applies to primary buttons in the web app; others stay grey; fonts are Gemini Enterprise's.</td></tr>
+          <tr><td><code>servicenow</code></td><td>Ticket category; asset tables searched</td></tr>
+          <tr><td><code>devices</code></td><td>Which model categories are medical equipment; how asset tags look; refresh ages</td></tr>
+          <tr><td><code>issues.personal</code>, <code>issues.equipment</code></td><td>Each problem button: label, photo required / recommended / optional / none and what to photograph, minimum urgency, replace, safety, fixed recommendation</td></tr>
+          <tr><td><code>service</code></td><td>Response targets per priority, safety text, recommendation texts</td></tr>
+        </tbody>
+      </table></div>
+      <div class="cmd-wrap"><div class="cmd-head"><span>yaml · example: a problem that needs a photo</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd">issues:
+  personal:
+    - {key: keyboard_trackpad, label: Keyboard or trackpad, photo: required,
+       photo_of: "the keyboard, showing the broken or missing keys"}</pre></div>
+      <p>Full reference with every field: <code>docs/CONFIGURATION.md</code>. Examples: <code>config/organization.yaml</code> (hospital), <code>config/examples/office.yaml</code>.</p>
+    </section>
+
+    <!-- ================================================================ ROLES -->
+    <section id="roles">
+      <h2>ServiceNow roles</h2>
+      <p>The agent acts as the signed-in user, so their roles decide what works. Measured with
+        <code>scripts/sn_doctor.py --matrix</code> (temporary users per role set, every agent call, read back as admin) on a
+        ServiceNow developer instance, 2026-09-30. Your ACLs may differ: <a href="#doctor">check yours</a>.</p>
+      <div class="table-wrap"><table id="matrix">
+        <thead><tr><th>What the agent does</th><th>No roles</th><th><code>itil</code></th><th><code>itil</code> + <code>sn_incident_write</code></th><th>+ <code>asset</code></th></tr></thead>
+        <tbody>
+          <tr><td>Who am I (every turn)</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Read own group memberships</td><td>no</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>List own devices</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Find a device by tag</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>List a department's equipment</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Read the device record (CI)</td><td>no</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Create a ticket</td><td>partly: drops urgency, description</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Add a note</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Read notes</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Attach a photo</td><td>yes</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Change status (reopen)</td><td>no</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Change urgency</td><td>no</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Change ship-to</td><td>no</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>See someone else's open ticket</td><td>no</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Follow someone else's ticket</td><td>no</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Cancel own ticket</td><td>no</td><td>yes</td><td>yes</td><td>yes</td></tr>
+        </tbody>
+      </table></div>
+      <p><strong><code>itil</code> alone is enough for everything</strong> on this instance. With <strong>no roles</strong>, people can still report problems;
+        what ServiceNow refuses, the agent handles: details go in the first note, changes become a note for the service desk (and the user is told),
+        and equipment isn't matched to open tickets.</p>
+      <div class="note warn"><p><strong>Licensing.</strong> <code>itil</code> is a fulfiller role and usually licensed per user. Granting it to every
+        employee just for this agent is rarely right. For production, plan either no roles for requesters, or a small scripted REST API / Service Catalog
+        item that sets ticket fields server-side. Check with your ServiceNow owner.</p></div>
+      <h3>Admin, one-time setup</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Task</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr><td>Create the OAuth clients (Application Registry)</td><td><code>admin</code> or <code>oauth_admin</code></td></tr>
+          <tr><td>Grant roles; create groups and departments</td><td><code>admin</code> or <code>user_admin</code></td></tr>
+          <tr><td>Demo data (<code>seed/sn_seed.py</code>)</td><td><code>admin</code></td></tr>
+          <tr><td>Permission checker (impersonates users)</td><td><code>admin</code></td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="doctor">
+      <h2>Check permissions</h2>
+      <p><code>scripts/sn_doctor.py</code> signs in as a ServiceNow admin, <strong>impersonates</strong> the user (no password), performs every call the agent
+        makes and reads back what ServiceNow stored. It creates and deletes one test ticket per user; <code>--read-only</code> skips that.</p>
+      <div class="cmd-wrap"><div class="cmd-head"><span>shell</span><button class="copy" type="button">Copy</button></div>
+<pre class="cmd">uv run --group seed python seed/sn_seed.py login
+uv run python scripts/sn_doctor.py --as {TEST_USER}
+uv run python scripts/sn_doctor.py --as {TEST_USER} --read-only
+uv run python scripts/sn_doctor.py --matrix --markdown docs/role-matrix.md</pre></div>
+      <div class="cmd-wrap"><div class="cmd-head"><span>sample output</span></div>
+<pre class="cmd"><span class="c">jane.doe  (roles: none)</span>
+  PASS  Who am I                         name, email, department, address readable
+  FAIL  Read own group memberships       access denied
+        -&gt; sys_user_grmember read: needs itil, group_viewer, sn_cmdb_user or user_admin.
+  PART  Create a ticket                  dropped: urgency, description</pre></div>
+    </section>
+
+    <!-- ================================================================ TROUBLESHOOTING -->
+    <section id="troubleshooting">
+      <h2>Troubleshooting</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>What you see</th><th>Fix</th></tr></thead>
+        <tbody>
+          <tr><td><code>deploy.sh</code> stops: "Set ... in .env"</td><td>Fill that variable (<a href="#configuration">Configuration</a>)</td></tr>
+          <tr><td>"Organization profile ... is not valid"</td><td>Run <code>uv run python -m app.profile</code>; it names the field</td></tr>
+          <tr><td>The agent doesn't answer; 403 in the logs</td><td><code>run.invoker</code> missing for Gemini Enterprise's service agent: rerun <code>deploy.sh</code></td></tr>
+          <tr><td>"unauthorized_client" when authorizing</td><td>Wrong client ID/secret, or the client's redirect URLs are missing</td></tr>
+          <tr><td>The agent answers as <code>admin</code></td><td>Re-add the agent; authorize in a browser not signed in to ServiceNow as admin</td></tr>
+          <tr><td>Urgency or description missing on tickets</td><td>The user lacks roles: <code>sn_doctor.py --as &lt;user&gt;</code></td></tr>
+          <tr><td>Old card text or version after a change</td><td>Gemini Enterprise keeps the agent card from registration: delete and re-add the agent</td></tr>
+          <tr><td>"ServiceNow is waking up"</td><td>A developer instance hibernated: open it in a browser and retry</td></tr>
+          <tr><td>Red "unsupported content" box on a phone</td><td>That conversation was answered as desktop: start a new one and answer 1</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="links">
+      <h2>Reference links</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Topic</th><th>Link</th></tr></thead>
+        <tbody>
+          <tr><td>Register an A2A agent in Gemini Enterprise</td><td><a class="ext" href="https://docs.cloud.google.com/gemini/enterprise/docs/register-and-manage-an-a2a-agent" target="_blank" rel="noopener">Register and manage A2A agents</a></td></tr>
+          <tr><td>A2UI agents in Gemini Enterprise</td><td><a class="ext" href="https://docs.cloud.google.com/gemini/enterprise/docs/a2ui-agents/register-and-manage-an-a2ui-agent" target="_blank" rel="noopener">Register and manage agents using A2UI and A2A</a></td></tr>
+          <tr><td>A2UI components Gemini Enterprise renders</td><td><a class="ext" href="https://docs.cloud.google.com/gemini/enterprise/docs/a2ui-agents/a2ui-component-gallery-reference" target="_blank" rel="noopener">A2UI component gallery reference</a></td></tr>
+          <tr><td>ServiceNow OAuth client for Gemini Enterprise</td><td><a class="ext" href="https://docs.cloud.google.com/gemini/enterprise/docs/connectors/servicenow/third-party-config" target="_blank" rel="noopener">ServiceNow configuration</a></td></tr>
+          <tr><td>Deploy to Cloud Run from source</td><td><a class="ext" href="https://docs.cloud.google.com/run/docs/deploying-source-code" target="_blank" rel="noopener">Deploy services from source code</a></td></tr>
+          <tr><td>Who may call the service</td><td><a class="ext" href="https://docs.cloud.google.com/run/docs/securing/managing-access" target="_blank" rel="noopener">Access control with IAM</a></td></tr>
+          <tr><td>Conversations</td><td><a class="ext" href="https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/sessions" target="_blank" rel="noopener">Agent Platform Sessions overview</a></td></tr>
+          <tr><td>Memory</td><td><a class="ext" href="https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/memory-bank" target="_blank" rel="noopener">Agent Platform Memory Bank</a></td></tr>
+          <tr><td>Agent Development Kit</td><td><a class="ext" href="https://adk.dev/" target="_blank" rel="noopener">adk.dev</a></td></tr>
+          <tr><td>A2A protocol</td><td><a class="ext" href="https://a2a-protocol.org/latest/" target="_blank" rel="noopener">a2a-protocol.org</a></td></tr>
+          <tr><td>A2UI</td><td><a class="ext" href="https://a2ui.org/" target="_blank" rel="noopener">a2ui.org</a></td></tr>
+        </tbody>
+      </table></div>
+      <p style="color:var(--muted);font-size:13.5px">Links checked 2026-09-30. Markdown versions of these docs: <code>docs/ARCHITECTURE.md</code>, <code>INSTALL.md</code>,
+        <code>CONFIGURATION.md</code>, <code>ROLES.md</code>.</p>
+    </section>
+  </article>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<script>
+(function () {
+  var KEY = "hw-agent-docs-v1";
+  var state = { values: {}, steps: {} };
+  try { state = Object.assign(state, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch (e) {}
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+
+  var inputs = Array.prototype.slice.call(document.querySelectorAll("input[data-var]"));
+  inputs.forEach(function (el) { if (state.values[el.dataset.var] !== undefined) el.value = state.values[el.dataset.var]; });
+
+  function vals() {
+    var v = {};
+    inputs.forEach(function (el) { v[el.dataset.var] = el.value.trim().replace(/\/+$/, ""); });
+    v.SERVICE_URL = (v.SERVICE_NAME && v.PROJECT_NUMBER && v.REGION)
+      ? "https://" + v.SERVICE_NAME + "-" + v.PROJECT_NUMBER + "." + v.REGION + ".run.app" : "";
+    v.AUTH_URL = v.INSTANCE ? v.INSTANCE + "/oauth_auth.do?response_type=code&client_id=" + (v.CLIENT_ID || "{CLIENT_ID}")
+      + "&redirect_uri=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Foauth-redirect&scope=useraccount" : "";
+    return v;
+  }
+  var NAMES = { SERVICE_URL: "SERVICE_URL (needs project number)", AUTH_URL: "AUTH_URL (needs instance)" };
+  function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
+  var cmds = Array.prototype.slice.call(document.querySelectorAll("pre.cmd"));
+  cmds.forEach(function (pre) { pre.dataset.tpl = pre.innerHTML; });
+  var lives = Array.prototype.slice.call(document.querySelectorAll(".live"));
+
+  function fill(tplHtml, v, forCopy) {
+    // Templates are stored as HTML (entities, comment spans); tokens are {NAME}.
+    return tplHtml.replace(/\{([A-Z_]+)\}/g, function (m, name) {
+      var value = v[name];
+      if (value && value.indexOf("{CLIENT_ID}") !== -1) {
+        value = value.replace("{CLIENT_ID}", forCopy ? "CLIENT_ID" : "\u0000");
+      }
+      if (forCopy) return value || name;
+      if (!value) return '<span class="v missing" title="Fill in Your values">' + esc(NAMES[name] || name) + "</span>";
+      var shown = esc(value).replace("\u0000", '</span><span class="v missing">CLIENT_ID</span><span class="v">');
+      return '<span class="v">' + shown + "</span>";
+    });
+  }
+  function render() {
+    var v = vals();
+    cmds.forEach(function (pre) {
+      if (!/\{[A-Z_]+\}/.test(pre.dataset.tpl)) return;
+      pre.innerHTML = fill(pre.dataset.tpl, v, false);
+    });
+    lives.forEach(function (el) { el.textContent = fill(el.dataset.tpl, v, true); });
+    var missing = ["PROJECT_ID", "PROJECT_NUMBER", "INSTANCE", "CLIENT_ID"].filter(function (k) { return !v[k]; });
+    document.getElementById("valuesStatus").textContent = missing.length
+      ? "Still blank: " + missing.join(", ") : "All set: commands below use your values.";
+  }
+  inputs.forEach(function (el) {
+    el.addEventListener("input", function () { state.values[el.dataset.var] = el.value; save(); render(); });
+  });
+  document.getElementById("clearValues").addEventListener("click", function () {
+    inputs.forEach(function (el) { el.value = el.defaultValue; state.values[el.dataset.var] = el.defaultValue; });
+    save(); render();
+  });
+
+  function toast(msg) {
+    var t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.appendChild(t);
+    setTimeout(function () { t.remove(); }, 2200);
+  }
+  document.querySelectorAll(".copy").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var pre = btn.closest(".cmd-wrap").querySelector("pre.cmd");
+      var tmp = document.createElement("div");
+      tmp.innerHTML = fill(pre.dataset.tpl, vals(), true);
+      var text = tmp.textContent;
+      var gaps = (pre.querySelectorAll(".v.missing") || []).length;
+      function ok() {
+        btn.textContent = "Copied"; btn.classList.add("ok");
+        setTimeout(function () { btn.textContent = "Copy"; btn.classList.remove("ok"); }, 1400);
+        if (gaps) toast("Copied, but " + gaps + " value(s) are still blank: see Your values");
+      }
+      function fallback() {
+        var r = document.createRange(); r.selectNodeContents(pre);
+        var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); toast("Selected: press ⌘C / Ctrl+C");
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(ok, fallback);
+      else fallback();
+    });
+  });
+
+  // install step checkboxes
+  var steps = Array.prototype.slice.call(document.querySelectorAll(".step[data-step]"));
+  function progress() {
+    var done = steps.filter(function (s) { return s.classList.contains("done"); }).length;
+    document.getElementById("installProgress").textContent = done + " of " + steps.length + " steps done.";
+  }
+  steps.forEach(function (step) {
+    var box = step.querySelector("h3 input[type=checkbox]");
+    box.id = "done-" + step.dataset.step;
+    box.checked = !!state.steps[step.dataset.step];
+    step.classList.toggle("done", box.checked);
+    box.addEventListener("change", function () {
+      state.steps[step.dataset.step] = box.checked; step.classList.toggle("done", box.checked); save(); progress();
+    });
+  });
+
+  // role matrix chips
+  document.querySelectorAll("#matrix tbody td:not(:first-child)").forEach(function (td) {
+    var t = td.textContent.trim(), cls = t === "yes" ? "yes" : t === "no" ? "no" : "part";
+    td.innerHTML = '<span class="chip ' + cls + '">' + esc(t) + "</span>";
+  });
+
+  // nav: highlight the section in view; mobile menu
+  var links = Array.prototype.slice.call(document.querySelectorAll("nav.side a"));
+  var targets = links.map(function (a) { return document.querySelector(a.getAttribute("href")); }).filter(Boolean);
+  function onScroll() {
+    var y = window.scrollY + 90, current = targets[0];
+    targets.forEach(function (t) { if (t.getBoundingClientRect().top + window.scrollY <= y) current = t; });
+    links.forEach(function (a) { a.classList.toggle("active", current && a.getAttribute("href") === "#" + current.id); });
+  }
+  window.addEventListener("scroll", onScroll, { passive: true });
+  var nav = document.getElementById("sidenav"), toggle = document.getElementById("navToggle");
+  toggle.addEventListener("click", function () {
+    var open = nav.classList.toggle("open"); toggle.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+  links.forEach(function (a) { a.addEventListener("click", function () { nav.classList.remove("open"); toggle.setAttribute("aria-expanded", "false"); }); });
+
+  render(); progress(); onScroll();
+
+  // diagrams
+  if (window.mermaid) {
+    var dark = document.documentElement.dataset.theme === "dark" ||
+      (document.documentElement.dataset.theme !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    window.mermaid.initialize({ startOnLoad: false, theme: dark ? "dark" : "neutral", securityLevel: "strict",
+      fontFamily: "IBM Plex Sans, system-ui, sans-serif" });
+    window.mermaid.run({ querySelector: "pre.mermaid" }).catch(function () {});
+  }
+})();
+</script>
+</body>
+</html>

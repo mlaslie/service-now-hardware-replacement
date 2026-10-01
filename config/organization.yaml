@@ -1,0 +1,124 @@
+# Organization profile: what this organization sees and how requests are handled.
+# Change it without touching code. The agent validates it at start-up; check it any time with:
+#     uv run python -m app.profile
+# Every field is explained in docs/CONFIGURATION.md. Deployment settings (Google Cloud project,
+# ServiceNow instance URL...) are NOT here: they go in .env (see .env.example).
+#
+# This profile: a hospital ("Riverside Medical Center" demo). A generic office example is in
+# config/examples/office.yaml.
+
+organization: Riverside Medical Center
+
+# How the agent appears in Gemini Enterprise (the agent card). Gemini Enterprise keeps the card
+# from registration: after changing this block, delete and re-add the agent.
+agent:
+  name: Hardware Replacement
+  # The opening of the agent's instructions: who it helps, what it covers, how it talks.
+  persona: >-
+    You are the Hardware Replacement assistant. You help hospital staff report broken or failing
+    hardware in as few taps as possible, and follow up on it: their own devices (laptop, phone,
+    monitor), which are replaced, and shared or medical equipment (MRI, CT, X-ray, ultrasound,
+    infusion pumps, patient monitors, hospital beds, reading-room workstations), which is repaired
+    on site by the team that supports it. Users range from engineers to nurses and technologists
+    who have never filed an IT ticket, so use plain, friendly language and never IT jargon.
+  description: >-
+    Report broken hardware in a sentence or a photo and follow up on it: your own laptop,
+    phone or monitor, or shared and medical equipment like an MRI, infusion pump or hospital bed.
+    I find the device, check it with you, send it to the team that fixes it, and answer
+    "any update?" at any time.
+  skill_name: Hardware repair and replacement
+  skill_description: >-
+    Report broken personal devices or shared and clinical equipment, with photo-based
+    identification, routing to the support team, and ticket follow-up.
+  examples:
+    - My laptop screen is cracked
+    - The MRI in room 104 is showing an error
+    - Any update on my ticket?
+    - My laptop won't turn on
+    - I need to replace my monitor
+
+branding:
+  # Colour of the primary (forward) buttons, #RRGGBB. Gemini Enterprise's web app applies it to
+  # primary buttons only; other buttons stay grey, and fonts are Gemini Enterprise's own.
+  primary_color: "#22873B"
+
+servicenow:
+  # incident.category set on every ticket; users see only tickets in this category.
+  ticket_category: hardware
+  # Tables searched for devices and equipment. Add e.g. a clinical device table if medical
+  # equipment is kept outside alm_hardware.
+  asset_tables: [alm_hardware]
+
+devices:
+  # Model categories that are medical equipment: repaired on site by the asset's support group.
+  clinical_categories:
+    - Imaging Equipment
+    - Patient Care Equipment
+    - Medical Equipment
+    - Medical Device
+    - Clinical Device
+    - Laboratory Equipment
+  # How asset tags look, in plain words, so the photo model reads the right number.
+  asset_tag_hint: >-
+    a sticker with a barcode and a short number: e.g. 123456 on IT devices, or a Clinical
+    Engineering control number like CE-10421 on medical equipment
+  # A personal device this many years old (by type) is eligible for a free refresh.
+  refresh_years: {laptop: 3, desktop: 4, monitor: 5, phone: 2, tablet: 3}
+  default_refresh_years: 4
+
+# The problem choices. key: stored on the request (letters, digits, _). label: the button text.
+# photo: required | recommended | optional | none, and photo_of: what to photograph.
+# min_urgency: urgency is raised to at least this. replace: the problem alone justifies a
+# replacement. safety: show the safety text (pair with min_urgency: critical).
+# recommendation: a fixed recommendation for this problem.
+issues:
+  personal:          # devices assigned to a person: replaced and shipped
+    - {key: cracked_screen, label: Cracked or broken screen, photo: required,
+       photo_of: "the screen, switched on if possible, so the cracks are visible",
+       min_urgency: high, replace: true}
+    - {key: wont_power_on, label: Won't turn on, min_urgency: high, replace: true}
+    - {key: battery, label: Battery or charging, photo: recommended,
+       photo_of: "the underside, and the trackpad if it looks lifted or the case bulges"}
+    - {key: keyboard_trackpad, label: Keyboard or trackpad, photo: recommended,
+       photo_of: "the keyboard, showing the broken or missing keys"}
+    - {key: liquid_damage, label: Liquid spill, photo: recommended,
+       photo_of: "where the liquid got in, plus any stains or corrosion", min_urgency: high, replace: true}
+    - {key: physical_damage, label: Other physical damage, photo: required,
+       photo_of: "the damaged area, close enough to see it clearly", replace: true}
+    - {key: performance, label: Slow or freezing,
+       recommendation: "Remote diagnostics first; replace if unresolved"}
+    - {key: other, label: Something else, photo: optional, photo_of: "whatever shows the problem"}
+  equipment:         # shared and medical equipment: repaired on site by its support group
+    - {key: not_working, label: Not working or won't turn on, min_urgency: high}
+    - {key: error_alarm, label: Error message or alarm, photo: recommended,
+       photo_of: "the screen or panel showing the error or alarm"}
+    - {key: damaged, label: Damaged or broken part, photo: recommended,
+       photo_of: "the damaged part, close enough to see it clearly"}
+    # No photo step: never slow down someone who should be taking unsafe equipment out of service.
+    - {key: safety_concern, label: Safety concern, min_urgency: critical, safety: true}
+    - {key: other, label: Something else, photo: optional, photo_of: "whatever shows the problem"}
+
+service:
+  # Shown as "Expected" / "Target", by ServiceNow priority (1 = critical ... 4 = low).
+  personal_response_targets:
+    "1": Next business day
+    "2": Next business day
+    "3": 2-3 business days
+    "4": 2-3 business days
+  equipment_response_targets:
+    "1": Response within 1 hour
+    "2": Same day
+    "3": Next business day
+    "4": Within 3 business days
+  safety_text: >-
+    If it is safe to do so, take it out of service now and tag it "Do not use". If a patient or
+    staff member was harmed, also follow your safety event reporting process.
+  # Recommendation texts on the review card and ticket. {cost_center} is filled in.
+  recommendations:
+    equipment_repair: On-site repair
+    equipment_safety: Remove from service, then on-site repair
+    refresh: Replace with current standard model (refresh eligible, no cost to department)
+    warranty_replacement: Warranty replacement
+    charged_replacement: "Replacement, charged to {cost_center}"
+    warranty_repair: Warranty repair with a loaner device
+    repair_assessment: Repair assessment; replace if repair is uneconomical

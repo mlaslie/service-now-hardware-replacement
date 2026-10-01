@@ -12,7 +12,7 @@ Last updated 2026-09-26.
 
 An ADK agent that lets an employee replace broken work hardware from Gemini Enterprise in a
 few taps. It runs on **Cloud Run**, is served to a **Gemini Enterprise** app over **A2A**, draws
-**A2UI v0.8** cards (buttons), reads photos with **gemini-3.8-flash**, and files and manages
+**A2UI v0.9** cards (buttons; v0.8 when a client negotiates it), reads photos with **gemini-3.8-flash**, and files and manages
 **ServiceNow incidents as the signed-in employee**, using their own ServiceNow OAuth token.
 
 Status: working end to end in Gemini Enterprise for `john.doe`. Since revision 00022 (now 00023) it also
@@ -45,7 +45,7 @@ in text mode (first reply asks mobile vs desktop).
 ### Google Cloud (`PROJECT_ID`, number `PROJECT_NUMBER`, region `us-central1`)
 | Resource | Name / ID | Notes |
 |---|---|---|
-| Cloud Run service | `hardware-replacement-agent` | URL `https://hardware-replacement-agent-PROJECT_NUMBER.us-central1.run.app` (the card advertises this form). Latest revision `00023`. `--no-allow-unauthenticated`, min 1 instance, concurrency 4, 1 GiB. |
+| Cloud Run service | `hardware-replacement-agent` | URL `https://hardware-replacement-agent-PROJECT_NUMBER.us-central1.run.app` (the card advertises this form). Latest revision `00027`. `--no-allow-unauthenticated`, min 1 instance, concurrency 4, 1 GiB. |
 | Runtime service account | `hardware-agent@PROJECT_ID.iam.gserviceaccount.com` | `aiplatform.user`, `logging.logWriter`, `storage.objectUser` on the bucket |
 | Cloud Run invoker | `service-PROJECT_NUMBER@gcp-sa-discoveryengine.iam.gserviceaccount.com` | `run.invoker` on the service only. This is how Gemini Enterprise calls it. |
 | Agent Runtime "state engine" | `projects/PROJECT_NUMBER/locations/us-central1/reasoningEngines/ENGINE_ID` (`hardware-replacement-state`) | **Runs no code.** Hosts managed Sessions + Memory Bank (topics: USER_PREFERENCES, delivery_and_contact, hardware_history). |
@@ -110,7 +110,7 @@ Gemini Enterprise (2H-2026) ──A2A message/stream (SSE)──▶ Cloud Run: h
         ├─ app/tools.py       wizard (start/select_device/set_issue/analyze_photos/skip_photo/
         │                     update_request/show_review/submit_ticket) + tickets (list/get/
         │                     update_ticket/add_note/change_shipping/request_urgent/cancel)
-        ├─ app/cards.py       deterministic A2UI v0.8 cards (the model never writes UI JSON)
+        ├─ app/cards.py       deterministic A2UI v0.9 cards (+ to_v08, to_text); the model never writes UI JSON
         ├─ app/servicenow.py  Table API as the user; every ticket query scoped caller_id+hardware
         ├─ app/vision.py      structured photo findings (pydantic schema)
         ├─ app/memory.py      Memory Bank keyed by email; offers, never auto-applies
@@ -125,6 +125,11 @@ Key design rules:
   by the asset's `support_group`, at its `location`, billed to its cost center.
 - **Confirm the device** (yes/no card) whenever it was picked, typed, described or fuzzy-matched; an
   exact photo match of the tag skips it. Ownership (`tools._relation`) is shown and noted, never enforced.
+- **Delivery addresses** (revision 00026): the ship-to is always a street address: ServiceNow's, a saved one, or
+  one typed. Permanent ones (home, office) are saved **verbatim** on submit in their own Memory Bank scope
+  (`app_name=hardware_replacement_addresses`, `memory.save_address`); hotels/events are used once, never
+  saved. Saved ones are offered only as grey review-card buttons; "looks good" never switches. Extracted
+  memories mentioning deliveries are filtered out of `recall` (they were vague, e.g. "a Marriott in Chicago").
 - **Followers**: a second reporter of equipment with an open ticket joins it via the watch list.
   Every ticket query is `caller_id = me OR watch_list LIKE me`; only the caller can cancel.
 - **Sessions keyed by A2A `contextId`** (user_id = `A2A_USER_<contextId>`), never by identity.
@@ -142,6 +147,11 @@ Key design rules:
 ---
 
 ## 4. How to
+
+Settings now live in `.env` (from `.env.example`; ours is filled in locally, not committed) and the
+organization profile in `config/organization.yaml`. Install and operations docs: `docs/INSTALL.md`,
+`docs/CONFIGURATION.md`, `docs/ROLES.md`, `docs/ARCHITECTURE.md`, and `docs/site/index.html`.
+
 
 ```bash
 cd ~/ADK/hardware_replacement
@@ -200,7 +210,14 @@ uv run --group seed pytest                      # everything: 48 tests
 - **Roles for requesters:** normal employees won't have `itil` or `sn_incident_write`. The
   production path is a Service Catalog item (fields set server-side) plus a scripted REST
   endpoint for "my devices".
-- **GE + A2UI v0.8:** `beginRendering` first, fresh `surfaceId` per card, no markdown, no empty
+- **Mobile can't be detected** (measured 2026-09-30 with a throwaway v0.9 agent): web and mobile send identical
+  `a2uiClientCapabilities`, and mobile renders neither v0.8 nor v0.9. Keep the first-turn question.
+  Details: `docs/BACKLOG.md` section E.
+- **A2UI version** (since revision 00024): cards are v0.9; the card declares v0.9 + v0.8 and the agent renders
+  whichever the request asks for (`inbound.requested_a2ui_version` → `cards.to_v08`). A v0.9 click is
+  `{"action": {...}}` plus a "User action triggered." text part, which `inbound.rewrite_parts` drops.
+  GE stores the card at registration: re-add the agent to switch a registration to v0.9.
+- **GE + A2UI v0.8 (history):** `beginRendering` first, fresh `surfaceId` per card, no markdown, no empty
   Text, basic catalog only. `primaryColor`/`font`/`primary` are **ignored** by GE, so button colours can't be changed.
 - **GE photos** arrive inline (base64) with sentinel text parts, sometimes with duplicated text.
   Stage them before the runner (the session event cap is 10MB) and raise the A2A body limit to 32MB.
@@ -225,7 +242,9 @@ The prioritized backlog is in `docs/BACKLOG.md`.
 3. **Production hardening:** a Service Catalog item for replacements; a scripted REST "my devices"
    endpoint; SSO between Google and ServiceNow (removes the wrong-account risk); optionally a
    guard warning when the ServiceNow user looks like a system account.
-4. Branding: not possible via A2UI v0.8 in GE (see lessons).
+4. Branding: done. In v0.9, GE applies `theme.primaryColor` (Baptist green #22873B) to basic-catalog Buttons with
+   `variant: "primary"`; the default variant stays grey. Forward buttons are primary (green), ways back or out grey.
+   GE's own `MaterialButton` ignores the theme (its palette: blue / teal / red). Measured 2026-09-30.
 5. Evals: none yet; `agents-cli` eval could cover the wizard shortcuts and the honesty rule.
 
 ---

@@ -64,7 +64,11 @@ REDIRECT_PORT = 8765
 REDIRECT_URI = f"http://localhost:{REDIRECT_PORT}/callback"
 SEED_MARK = "[hw-seed]"
 SECRET_NAME = "servicenow-seed-oauth"
-PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "PROJECT_ID")
+sys.path.insert(0, str(HERE.parent))
+from app.config import load_env_file  # noqa: E402 - the same .env the agent uses
+
+load_env_file()
+PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
 
 # sys_user fields `set` may change; their prior values are snapshotted for reset.
 USER_FIELDS = ("first_name", "last_name", "email", "title", "phone", "department", "cost_center",
@@ -87,8 +91,11 @@ class OAuthClient:
 
 def load_client() -> OAuthClient:
     if os.environ.get("SN_CLIENT_ID"):
-        return OAuthClient(os.environ.get("SN_INSTANCE_URL", "https://INSTANCE.service-now.com").rstrip("/"),
+        return OAuthClient(os.environ["SN_INSTANCE_URL"].rstrip("/"),
                            os.environ["SN_CLIENT_ID"].strip(), os.environ["SN_CLIENT_SECRET"].strip())
+    if not PROJECT:
+        sys.exit("Set GOOGLE_CLOUD_PROJECT in .env (for the servicenow-seed-oauth secret), or set "
+                 "SN_INSTANCE_URL, SN_CLIENT_ID and SN_CLIENT_SECRET.")
     from google.cloud import secretmanager
     raw = secretmanager.SecretManagerServiceClient().access_secret_version(
         name=f"projects/{PROJECT}/secrets/{SECRET_NAME}/versions/latest").payload.data.decode()
@@ -768,8 +775,10 @@ def cmd_clear_tickets(sn: SN, yes: bool) -> None:
 
 def _delete_memories(emails: list[str]) -> None:
     import vertexai
-    engine = os.environ.get("AGENT_ENGINE_ID", "ENGINE_ID")
-    location = os.environ.get("AGENT_ENGINE_LOCATION", "us-central1")
+    engine = os.environ.get("AGENT_ENGINE_ID", "")
+    if not engine:
+        return log("! AGENT_ENGINE_ID is not set in .env; agent memories were not deleted")
+    location = os.environ.get("AGENT_ENGINE_LOCATION") or os.environ.get("REGION", "us-central1")
     client = vertexai.Client(project=PROJECT, location=location)
     name = f"projects/{PROJECT}/locations/{location}/reasoningEngines/{engine}"
     count = 0

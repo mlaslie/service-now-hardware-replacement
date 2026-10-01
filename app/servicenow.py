@@ -27,13 +27,15 @@ import time
 import httpx
 
 from app import config
+from app.profile import current as _current_profile
 
 logger = logging.getLogger(__name__)
 
 # The signed-in user's ServiceNow access token, for the current request only.
 user_token: contextvars.ContextVar[str | None] = contextvars.ContextVar("sn_user_token", default=None)
 
-HARDWARE = "hardware"
+PROFILE = _current_profile()
+HARDWARE = PROFILE.servicenow.ticket_category  # incident.category of every ticket this agent touches
 ACTIVE_STATES = ("1", "2", "3")  # New, In Progress, On Hold
 STATE_LABELS = {"1": "New", "2": "In Progress", "3": "On Hold", "6": "Resolved", "7": "Closed", "8": "Canceled"}
 STATE_CODES = {label.lower(): code for code, label in STATE_LABELS.items()}
@@ -56,7 +58,7 @@ _INCIDENT_FIELDS = ",".join([
 # Device kinds, which decide how a problem is fixed:
 #   personal  - assigned to a person: replaced and shipped
 #   shared    - department IT equipment (reading-room workstation, printer): repaired on site
-#   clinical  - medical equipment (model category in config.CLINICAL_CATEGORIES): repaired on
+#   clinical  - medical equipment (model category in the profile's devices.clinical_categories): repaired on
 #               site by its support group, usually Clinical or Imaging Engineering
 PERSONAL, SHARED, CLINICAL = "personal", "shared", "clinical"
 
@@ -183,7 +185,7 @@ def _device_type(category: str, name: str) -> str:
 
 
 def _kind(category: str, assigned_to: str) -> str:
-    if category.lower() in {c.lower() for c in config.CLINICAL_CATEGORIES}:
+    if category.lower() in {c.lower() for c in PROFILE.devices.clinical_categories}:
         return CLINICAL
     return PERSONAL if assigned_to else SHARED
 
@@ -222,7 +224,7 @@ async def _assets(query: str, limit: int) -> list[dict]:
     """Searches every configured asset table (alm_hardware, plus e.g. a clinical
     device table where a hospital keeps medical equipment separately)."""
     out: list[dict] = []
-    for table in config.ASSET_TABLES:
+    for table in PROFILE.servicenow.asset_tables:
         result = await _request("GET", f"/api/now/table/{table}",
                                 params={"sysparm_query": query, "sysparm_fields": _ASSET_FIELDS, "sysparm_limit": limit})
         out += [_asset(r) for r in result.get("result", [])]

@@ -35,6 +35,19 @@ async def test_photo_is_staged_and_sentinels_dropped():
     assert photos[0]["uri"] == "gs://b/1"
 
 
+async def test_v09_click_becomes_text_and_drops_the_echo():
+    click = {"action": {"name": "select_device", "context": {"asset_tag": "IT-1"}, "sourceComponentId": "c3",
+                        "surfaceId": "hw_1", "timestamp": "2026-09-30T17:11:23.737Z"}}
+    parts = [_text(inbound.CLICK_ECHO), Part(root=DataPart(data=click, metadata={"mimeType": "application/json+a2ui"}))]
+    out, _ = await inbound.rewrite_parts(parts, _uploads()[0])
+    assert [p.root.text for p in out] == ['[UI action] select_device {"asset_tag": "IT-1"}']
+
+
+async def test_echo_text_alone_is_kept():
+    out, _ = await inbound.rewrite_parts([_text(inbound.CLICK_ECHO)], _uploads()[0])
+    assert out[0].root.text == inbound.CLICK_ECHO
+
+
 async def test_user_action_becomes_text_for_both_context_shapes():
     listed = {"userAction": {"name": "select_device",
                              "context": [{"key": "asset_tag", "value": {"literalString": "IT-1"}}]}}
@@ -47,3 +60,11 @@ async def test_user_action_becomes_text_for_both_context_shapes():
 async def test_empty_message_still_has_a_part():
     out, _ = await inbound.rewrite_parts([_text("<start_of_user_uploaded_file: x.pdf>")], _uploads()[0])
     assert len(out) == 1 and out[0].root.text
+
+
+def test_requested_a2ui_version_picks_the_highest():
+    v = inbound.requested_a2ui_version
+    assert v(["https://a2ui.org/a2a-extension/a2ui/v0.8"]) == "0.8"
+    assert v(["https://a2ui.org/a2a-extension/a2ui/v0.9", "https://google.github.io/adk-docs/a2a/a2a-extension/"]) == "0.9"
+    assert v(["https://a2ui.org/a2a-extension/a2ui/v0.8", "https://a2ui.org/a2a-extension/a2ui/v0.9"]) == "0.9"
+    assert v([]) == ""

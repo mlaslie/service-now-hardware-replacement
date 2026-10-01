@@ -2,7 +2,7 @@
 
 Sends messages the way Gemini Enterprise does (one contextId per conversation,
 photos as inline base64 wrapped in upload sentinels, button clicks as A2UI
-userAction DataParts) and prints cards as text.
+A2UI v0.9 action DataParts) and prints cards as text.
 
     uv run python scripts/chat.py                       # local server, interactive
     uv run python scripts/chat.py --url https://...run.app --token "$(gcloud auth print-identity-token)"
@@ -25,39 +25,36 @@ import httpx
 
 
 def _walk(by_id: dict, cid: str, buttons: list[dict]) -> None:
-    """Prints a card in the order the renderer lays it out."""
-    kind, props = next(iter(by_id[cid].items()))
+    """Prints an A2UI v0.9 card in the order the renderer lays it out."""
+    comp = by_id[cid]
+    kind = comp.get("component")
     if kind == "Text":
-        print(f"  | {props['text']['literalString']}")
+        print(f"  | {comp['text']}")
     elif kind == "Button":
-        label = by_id[props["child"]]["Text"]["text"]["literalString"]
-        buttons.append(props["action"])
-        print(f"  | [{len(buttons)}] {label}")
+        buttons.append(comp["action"]["event"])
+        print(f"  | [{len(buttons)}] {by_id[comp['child']]['text']}")
     elif kind == "Card":
-        _walk(by_id, props["child"], buttons)
+        _walk(by_id, comp["child"], buttons)
     elif kind in ("Column", "Row"):
-        kids = props["children"]["explicitList"]
-        if kind == "Row" and all("Text" in by_id[k] for k in kids):
-            print("  | " + " ".join(by_id[k]["Text"]["text"]["literalString"] for k in kids))
+        kids = comp["children"]
+        if kind == "Row" and all(by_id[k].get("component") == "Text" for k in kids):
+            print("  | " + " ".join(by_id[k]["text"] for k in kids))
         else:
             for k in kids:
                 _walk(by_id, k, buttons)
 
 
 def render(parts: list[dict], buttons: list[dict]) -> None:
-    root = None
     for part in parts:
         if part.get("kind") == "text":
             print(f"  agent: {part['text']}")
         elif part.get("kind") == "data":
-            data = part.get("data", {})
-            root = (data.get("beginRendering") or {}).get("root", root)
-            update = data.get("surfaceUpdate")
+            update = (part.get("data") or {}).get("updateComponents")
             if not update:
                 continue
-            by_id = {c["id"]: c["component"] for c in update["components"]}
+            by_id = {c["id"]: c for c in update["components"]}
             print("  +-- card " + "-" * 50)
-            _walk(by_id, root or update["components"][-1]["id"], buttons)
+            _walk(by_id, "root", buttons)
             print("  +" + "-" * 59)
 
 
@@ -118,9 +115,10 @@ def main() -> None:
                     print("  ! no such button")
                     continue
                 action = buttons[n - 1]
-                parts.append({"kind": "data", "data": {"userAction": {
-                    "name": action["name"], "sourceComponentId": "button",
-                    "context": {kv["key"]: kv["value"]["literalString"] for kv in action.get("context", [])}}},
+                # As Gemini Enterprise sends an A2UI v0.9 click: the action plus an echo text part.
+                parts.append({"kind": "text", "text": "User action triggered."})
+                parts.append({"kind": "data", "data": {"action": {
+                    "name": action["name"], "sourceComponentId": "button", "context": action.get("context", {})}},
                     "metadata": {"mimeType": "application/json+a2ui"}})
             elif line.startswith("/photo "):
                 path, _, text = line[7:].partition(" ")

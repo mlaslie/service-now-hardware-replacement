@@ -4,8 +4,115 @@ Created 2026-09-26. The agent works end to end; this is the next round of work.
 Priority: **P0** = bug or blocks the next manual test, **P1** = next up, **P2** = later.
 Size: S (< half a day), M (about a day), L (several days).
 
-Suggested order now: F-next (hospital equipment follow-ups) → A2 evals → C setup → D ideas.
-Done: A0, A1, A3, B, E (mobile text mode), F (hospital equipment).
+Suggested order now: **G (adoption kit)** → F-next (hospital equipment follow-ups) → A2 evals → D ideas.
+Section C is folded into G2. Done: A0, A1, A3, B, E (mobile text mode), F (hospital equipment),
+A2UI v0.9 with green primary buttons, verbatim delivery addresses.
+
+---
+
+## G. Adoption kit: easy to understand, install and customize
+
+Goal: another organization can read how the agent works in an hour, install it on their own
+Google Cloud and ServiceNow in an afternoon, and adapt it to their fields, wording and colours
+**without editing Python**.
+
+Today the things an organization would change are spread across code:
+
+| What | Where it lives today |
+|---|---|
+| Brand colour, issue lists, safety wording, step count | `app/cards.py` constants |
+| Photo rules, urgency rules, response targets, refresh ages, temporary-place words | `app/tools.py` constants (`PHOTO_POLICY`, `_PRIORITY`, `_EQUIPMENT_SLA`, `REFRESH_YEARS`, `_TEMPORARY`...) |
+| ServiceNow category, states, priority matrix, laptop model names | `app/servicenow.py` constants |
+| Persona ("hospital staff"), tone, routing rules | `app/agent.py` `INSTRUCTION` |
+| Desktop/mobile question and its answers | `app/agent.py` `ASK_TEXT`, `app/inbound.py` word lists |
+| Agent name, description, examples | `app/server.py` `build_agent_card` |
+| Project, engine, instance defaults (ours) | `app/config.py`, `scripts/deploy.sh` |
+
+### G1. Understand: documentation and structure (P1)
+
+| ID | Item | Size |
+|---|---|---|
+| G1.1 | **Done 2026-09-30.** **`docs/ARCHITECTURE.md` with diagrams** (Mermaid, render on GitHub): (a) components: Gemini Enterprise → Cloud Run → ServiceNow / Agent Runtime / GCS / Gemini; (b) one turn, sequence: identity, photos, display mode, model, tools, card; (c) the request flow as a state diagram: device → confirm → already reported? → problem → photo → review → submit; (d) ticket changes: attempt → read back → note what was refused → tell the user; (e) sign-in: GE authorization → token pass-through → ServiceNow ACLs. | M |
+| G1.2 | **Split `app/tools.py` (1,300 lines)** into a package: `wizard/` (steps), `devices.py` (lookup, matching, ownership), `addresses.py`, `tickets.py` (list/get/update/follow), `policy.py` (urgency, response targets, photo rules). No behaviour change; tests stay green. | M |
+| G1.3 | **Done (module map in ARCHITECTURE.md and the HTML docs).** **Module guide**: a one-screen map in the README ("to change X, look in Y") plus a docstring at the top of every module saying what it owns. | S |
+| G1.4 | **Decision records** (`docs/decisions/`), one page each: Cloud Run not Agent Runtime (identity), per-user ServiceNow OAuth, deterministic cards (model never writes UI JSON), A2UI v0.9 with v0.8 fallback, the desktop/mobile question, verbatim saved addresses, "attempt, verify, note". Most of the reasoning is already in HANDOFF; this makes it findable. | S |
+| G1.5 | **Glossary**: draft, card, surface, device kind, relation, follower, correlation id, display mode, CI. | S |
+| G1.6 | **User guide** (1 page, for end users and help desks): what to say, what the buttons do, how to get updates, mobile vs desktop. Could double as the GE agent description. | S |
+| G1.7 | **Troubleshooting guide for operators**, from the HANDOFF problems table rewritten as symptom → cause → fix, plus the log queries that find each. | S |
+
+### G2. Install: from zero to a working agent (P1)
+
+| ID | Item | Size |
+|---|---|---|
+| G2.1 | **Done, plus `docs/site/index.html` (fill-in values, copy buttons, checked links).** **`docs/INSTALL.md`**: prerequisites → ServiceNow setup → Google Cloud setup → deploy → register in Gemini Enterprise → smoke test → optional demo data. Every step with the exact command or screen, and how to verify it worked. | M |
+| G2.2 | **Done: `.env` / `.env.example`, `config.require()`, our defaults removed.** **One settings file** (`.env` from `.env.example`, or `config/deployment.yaml`) with every value explained: project, region, service name, ServiceNow instance, model, locations. Remove our defaults (`PROJECT_ID`, engine id, `INSTANCE`) from code; fail at startup with a clear message when something is missing. (Was C1.) | S |
+| G2.3 | **Done: `scripts/setup.sh` + `scripts/create_state_engine.py` (tested: created and deleted an instance).** **`scripts/setup.sh`** (idempotent): enable APIs, create the bucket, runtime service account and roles, the code-less Agent Runtime engine for sessions and memory, and print what to put in the settings file. (Was C2 + C3; the engine is hand-made today.) | M |
+| G2.4 | **Deploy options, documented side by side**: `scripts/deploy.sh` (gcloud, supported), plain `gcloud run deploy` for people who want to see it, and why `adk deploy cloud_run` / `agents-cli deploy` don't fit (custom A2A server with identity pass-through). Optional Terraform module for organizations that require IaC. | S/M |
+| G2.5 | **Gemini Enterprise registration**: a script that prints the agent card JSON and the authorization values (auth URL, token URL, scope) ready to paste, and optionally registers the agent + authorization through the Discovery Engine API. Document the gotchas (re-add to change the card, one authorization per agent, never authorize as admin). (Was C5.) | M |
+| G2.6 | **Done (INSTALL step 2; screenshots still to add).** **ServiceNow setup guide** (was C4): OAuth client in Application Registry (authorization code, the two GE redirect URLs), what the connector client is, the seed-script client, how to test sign-in. Screenshots. | S |
+| G2.7 | **Done: `docs/ROLES.md`, measured on INSTANCE.** **Role matrix, measured, not guessed.** For each thing the agent does (read own profile, list own devices, read department equipment, read group memberships, create incident, set description / urgency / assignment group / location / watch list, add comment, change state, read journal, attach photo, read other people's open tickets on a CI), record the minimum role and ACL. Two personas: **admin** (one-time setup: OAuth client, groups, categories, seed) and **requester** (day to day). Document what degrades gracefully without each role. | M |
+| G2.8 | **Done: `scripts/sn_doctor.py` (impersonation; `--as`, `--matrix`, `--read-only`).** **`sn_doctor` permission checker**: `python scripts/sn_doctor.py --as <user>` signs in as a test user and tries each operation from G2.7 (creating and deleting a test incident), then prints a pass/fail table with the fix for each failure. Turns "why is urgency ignored?" into a one-minute check. | M |
+| G2.9 | **Post-deploy smoke test**: `scripts/smoke.sh` fetches the agent card, checks the declared A2UI versions, and runs a scripted conversation through `scripts/chat.py` (no submit). | S |
+| G2.10 | **Upgrade notes / CHANGELOG** with a line per release that needs action (e.g. "re-add the agent: agent card changed"). | S |
+
+### G3. Customize without code (P1)
+
+One **organization profile**, `config/organization.yaml` (validated at startup with a schema, with
+clear errors), read by the agent instead of the constants above. A sample profile for "generic
+office" and one for "hospital" (today's behaviour).
+
+| ID | Item | Size |
+|---|---|---|
+| G3.1 | **Done: `app/profile.py`, `config/organization.yaml`, office example, 15 tests.** **Profile loader + schema** (pydantic): load, validate, show the effective config in the logs at startup, and a `--check` mode. Defaults reproduce today's behaviour exactly. | M |
+| G3.2 | **Branding**: agent display name, description and examples (agent card), brand colour (`theme.primaryColor`; document the measured limits: only primary buttons take it, secondary stay grey, GE controls fonts, `MaterialButton` ignores it), which buttons are primary, optional `iconUrl` / `agentDisplayName` theme fields (untested). | S |
+| G3.3 | **Wording**: every user-facing string (card titles, subtitles, button labels, the desktop/mobile question and accepted answers, safety text, confirmation text) in `config/messages.yaml`. Keys, not Python. Opens the door to G5.1 (languages). | M |
+| G3.4 | **Problem choices**: per device kind, the list of issue options, each with its label, the ServiceNow value it writes (category / subcategory / custom field), whether a photo is required / recommended / not asked, what to photograph, and a minimum urgency (e.g. safety concern = critical). Replaces `ISSUE_CATEGORIES`, `EQUIPMENT_ISSUES`, `PHOTO_POLICY`, `_BLOCKING`. | M |
+| G3.5 | **Use the organization's own ServiceNow choice lists.** Option A: `source: servicenow` reads `sys_choice` for a field (e.g. `incident.subcategory` where `dependent_value=hardware`, or a custom `u_hardware_type`) and shows exactly those, with their labels and order, cached. Option B: a static list in the profile, each mapped to a choice value. Either way the agent only ever writes values that exist; `--check` flags profile values missing from ServiceNow. | M |
+| G3.6 | **Device types from ServiceNow**: map model categories to device kinds (personal / shared / clinical) and to the organization's hardware-type values, instead of the laptop-name heuristics and `CLINICAL_CATEGORIES`. | S |
+| G3.7 | **Ticket mapping**: which table (incident today; option for a Service Catalog item / `sc_req_item`, see D4), which category, which fields get description, urgency/impact, CI, location, assignment group, correlation id; the state labels and codes; the priority matrix (urgency × impact → label). Organizations with custom fields add them here (e.g. `u_cost_center`, `u_building`). | M |
+| G3.8 | **Service rules**: response targets per priority, refresh ages per device type, recommendation texts, "who handles it" fallback group, whether requesters may change urgency / reopen / cancel (or only request it via a note). | S |
+| G3.9 | **Feature switches**: equipment reporting, photo analysis, followers / duplicate detection, saved addresses, memory, the desktop/mobile question (off for web-only organizations), safety concern category, ownership check. | S |
+| G3.10 | **Persona and tone**: industry (hospital / office / university / field service), audience, tone, and extra rules appended to the instruction from the profile, with the tool-routing part of the instruction kept in code so customizations can't break the flow. | S |
+| G3.11 | **Demo data per organization**: the seed files (`users.json`, `catalog.json`, `equipment.json`) documented as templates, with a generic-office example next to the hospital one. | S |
+| G3.12 | **Customization guide** (`docs/CUSTOMIZE.md`): one recipe per common change, e.g. "show only our hardware types", "change the button colour", "add a problem type with a required photo", "route printers to the Print team", "turn off equipment reporting", each with the YAML snippet and how to verify. | M |
+
+### G4. Operate and trust (P2)
+
+| ID | Item | Size |
+|---|---|---|
+| G4.1 | **Privacy and security notes**, especially for hospitals: photos may capture patients or screens with patient data (add a reminder on the photo step; optional face/PHI blur); photo retention (GCS lifecycle rule, attachment copied to ServiceNow); what is stored where (sessions, memory, saved addresses) and how to delete a person's data; tokens never logged; VPC-SC / CMEK / data residency options. | M |
+| G4.2 | **Observability**: a Cloud Logging dashboard (turns, tickets filed, paths taken (D10), errors, ServiceNow refusals, model latency) and alerting on error rate and ServiceNow sign-in failures. | M |
+| G4.3 | **Cost guide**: per-ticket cost of model calls, vision, Cloud Run min-instance, Agent Runtime sessions/memory; knobs to reduce it. | S |
+| G4.4 | **Regression safety for customizations**: evals (A2) run against the organization's profile; `pytest` fixtures that load any profile, so a customization that breaks the flow fails in CI. | M |
+| G4.5 | **Support runbook**: rotate the OAuth client secret, re-register after a card change, instance hibernation, user reports "wrong person", clearing a stuck conversation. | S |
+
+### G5. Brainstorm: other customizations organizations will ask for (P2, pick later)
+
+- **G5.1 Languages**: messages per locale from G3.3; detect from the Gemini Enterprise request or the ServiceNow user's language.
+- **G5.2 Approvals**: manager approval above a cost or for non-warranty replacements (catalog item approvals, D4).
+- **G5.3 Loaners and pickup**: offer a loaner for blocking issues (D3); courier pickup / return label (D7).
+- **G5.4 Locations and delivery rules**: ship only to company sites, or allow home delivery per policy; pick from `cmn_location` instead of free text.
+- **G5.5 Assignment**: use ServiceNow assignment rules / data lookup instead of setting the group, or a per-device-type routing table in the profile.
+- **G5.6 Self-help first**: per problem type, 2–3 checks before filing (D6), from a knowledge base article.
+- **G5.7 Other ticket systems**: keep the ServiceNow client behind an interface so Jira Service Management or Freshservice could be added later.
+- **G5.8 Accessibility**: text mode as a user choice for screen readers (E open question), plain-language review.
+- **G5.9 Multiple organizations / business units** from one deployment: profile chosen by the user's company or domain.
+- **G5.10 Branding beyond colour**: agent icon in Gemini Enterprise, custom greeting, sign-off text.
+
+### Status (2026-09-30)
+Done: G1.1, G1.3, G2.1, G2.2, G2.3, G2.6 (text), G2.7, G2.8, G3.1. Already covered by the profile: the colour and
+agent card text (G3.2), problem choices with photo and urgency rules (G3.4, static lists), device categories (part of
+G3.6), service texts and response targets (G3.8), persona (G3.10). Measured finding: `itil` alone covers every
+feature; with no roles, requesters can still file (details go in a note) but can't change, follow or be matched to
+open tickets; `itil` is a licensed role (see ROLES.md).
+
+### Suggested order inside G
+1. G2.2 settings file and G3.1 profile loader: everything else builds on them.
+2. G1.1 architecture diagrams and G2.1 install guide: the first things a new organization reads.
+3. G2.7 role matrix and G2.8 `sn_doctor`: the most common adoption blocker is ServiceNow permissions.
+4. G3.2–G3.5: branding, wording, problem choices and ServiceNow choice lists (your examples).
+5. G1.2 split `tools.py`, then G3.12 customization guide with recipes.
+6. The rest as organizations ask.
 
 ---
 
@@ -98,7 +205,7 @@ Depends on A0.1 (step 2 files a second ticket in the same conversation, unless t
 
 ---
 
-## C. Replicate in someone else's Google Cloud (P1, M)
+## C. Replicate in someone else's Google Cloud (P1, M): **folded into G2**
 
 Goal: one page, `docs/SETUP.md`, plus scripts so a new owner runs about 5 commands.
 
@@ -227,6 +334,18 @@ number or the option's words acts as a click). The web app gets cards. The first
 and replayed once they answer. "text" / "buttons" switch modes. A click on the first turn skips the
 question. Code: `inbound.display_step`, `cards.to_text`, `agent.ask_display_mode`, `apply_display_mode`
 in `server.py`; tests in `tests/test_display.py`. The options below are kept for the record.
+
+### Measured 2026-09-30: A2UI v0.9 and client capabilities (throwaway agent `a2ui-v09-probe`)
+Tested because a note claimed the mobile app renders the A2UI v0.9 basic catalog and that clients
+advertise different catalogs (`a2uiClientCapabilities`), which would allow automatic detection. **Neither holds:**
+- An agent declaring v0.9 **and** v0.8 gets v0.9 requested. **Web and mobile both advertise** the v0.9 basic
+  catalog **and** the Gemini Enterprise composite catalog, with identical headers. Nothing tells them apart.
+  (Our v0.8-only agent sees the v0.8 basic catalog from both: Gemini Enterprise echoes what the agent declares.)
+- **Mobile shows the red "unsupported content" box for v0.9 too.** Web renders v0.9 fully.
+- A v0.9 click arrives as a DataPart `{"action": {"name", "context": {..}, "sourceComponentId", "surfaceId",
+  "timestamp"}}` plus a text part "User action triggered.". Useful if the web cards ever move to v0.9 (v0.8 is
+  deprecated upstream); it would not help mobile.
+- **Decision: keep the first-turn "Desktop or Mobile App?" question.** Re-test when the mobile app changes.
 
 ### Options
 

@@ -22,7 +22,7 @@ from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCapabilities, AgentCard, AgentSkill, Part, TextPart
 from a2ui.a2a.extension import get_a2ui_agent_extension
-from a2ui.schema.constants import VERSION_0_8
+from a2ui.schema.constants import VERSION_0_8, VERSION_0_9
 from google.adk.a2a.converters.request_converter import convert_a2a_request_to_agent_run_request
 from google.adk.a2a.executor.a2a_agent_executor import A2aAgentExecutor
 from google.adk.a2a.executor.config import A2aAgentExecutorConfig, ExecuteInterceptor
@@ -39,6 +39,9 @@ from app.identity import bearer, resolve_end_user
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("hardware_replacement")
+
+# Stop at start-up, naming what is missing, rather than failing on the first request.
+config.require()
 
 # ADK's model client reads these; gemini-3.8-flash is served from `global`.
 os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "true")
@@ -99,6 +102,7 @@ async def preprocess(context: RequestContext) -> RequestContext:
     servicenow.user_token.set(token)
     user = await resolve_end_user(token)
     state[inbound.END_USER_KEY] = user.to_state()
+    state[inbound.A2UI_VERSION_KEY] = inbound.requested_a2ui_version(context.requested_extensions)
 
     if context.message and context.message.parts:
         context_id = context.context_id or "no-context"
@@ -161,18 +165,16 @@ def to_run_request(context: RequestContext, part_converter):
     if photos:
         delta["last_photo_ids"] = [p["photo_id"] for p in photos]
     delta.update(state.get(UI_DELTA_KEY) or {})
+    delta[inbound.A2UI_VERSION_KEY] = state.get(inbound.A2UI_VERSION_KEY, "")
     request.state_delta = delta or None
     return request
 
 
 def build_agent_card() -> AgentCard:
+    agent = cards.PROFILE.agent  # name, description and examples: config/organization.yaml
     return AgentCard(
-        name="Hardware Replacement",
-        description=(
-            "Replace broken or failing work hardware in a few taps. Snap a photo of the device "
-            "and I'll identify it, read the asset tag and serial number, document the damage, "
-            "and file the service desk request for you."
-        ),
+        name=agent.name,
+        description=" ".join(agent.description.split()),
         # Must be the public URL: Gemini Enterprise POSTs to whatever the card says.
         url=f"{config.SERVICE_URL}/",
         version="1.0.0",
@@ -180,25 +182,24 @@ def build_agent_card() -> AgentCard:
         capabilities=AgentCapabilities(
             streaming=True,
             push_notifications=False,
-            extensions=[get_a2ui_agent_extension(
-                version=VERSION_0_8,
-                accepts_inline_catalogs=True,
-                supported_catalog_ids=[cards.BASIC_CATALOG_ID],
-            )],
+            # Both versions: Gemini Enterprise picks the highest (v0.9); cards are
+            # translated to v0.8 for a client that still asks for it (cards.to_v08).
+            extensions=[
+                get_a2ui_agent_extension(version=VERSION_0_9, accepts_inline_catalogs=True,
+                                         supported_catalog_ids=[cards.BASIC_CATALOG_ID]),
+                get_a2ui_agent_extension(version=VERSION_0_8, accepts_inline_catalogs=True,
+                                         supported_catalog_ids=[cards.V08_CATALOG_ID]),
+            ],
         ),
         # Without image types here Gemini Enterprise may never offer an attachment.
         default_input_modes=["text/plain", "image/png", "image/jpeg", "image/webp", "image/heic", "application/json"],
         default_output_modes=["text/plain", "application/json", "application/json+a2ui"],
         skills=[AgentSkill(
             id="hardware_replacement",
-            name="Hardware replacement request",
-            description="Guided replacement request for laptops, monitors, phones and accessories, with photo-based device identification and damage evidence.",
-            tags=["it", "hardware", "replacement", "service desk", "broken"],
-            examples=[
-                "My laptop screen is cracked",
-                "My laptop won't turn on",
-                "I need to replace my monitor",
-            ],
+            name=agent.skill_name,
+            description=" ".join(agent.skill_description.split()),
+            tags=["it", "hardware", "replacement", "repair", "service desk"],
+            examples=agent.examples,
         )],
     )
 

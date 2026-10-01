@@ -8,13 +8,25 @@ is there the next time they ask.
 """
 
 import asyncio
+import functools
+import json
 import logging
+import re
+import warnings
 
 from google.adk.tools import ToolContext
 
 from app import config
 
 logger = logging.getLogger(__name__)
+
+# Saved delivery addresses live in their own Memory Bank scope, stored verbatim (one
+# fact per address), so they are never paraphrased ("a Marriott in Chicago") the way
+# extracted conversation memories are. Only permanent places are saved.
+_ADDRESS_SCOPE_APP = f"{config.APP_NAME}_addresses"
+_ADDRESS_PREFIX = "Saved delivery address: "
+# Extracted memories about deliveries are vague and may be temporary: never shown to the model.
+_DELIVERY_WORDS = re.compile(r"\b(ship|shipped|shipping|deliver|delivered|delivery|address|hotel|sent to|send to)\b", re.I)
 
 _RECALL_QUERY = "delivery location, contact preferences, and past hardware problems"
 
@@ -37,9 +49,80 @@ async def recall(ctx: ToolContext, email: str, limit: int = 8) -> list[str]:
     facts = []
     for memory in result.memories[:limit]:
         text = " ".join(p.text for p in (memory.content.parts or []) if p.text).strip()
-        if text:
+        if text and not _DELIVERY_WORDS.search(text):  # addresses come from saved_addresses()
             facts.append(text)
     return facts
+
+
+@functools.lru_cache(maxsize=1)
+def _client():
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", FutureWarning)
+        import vertexai
+        return vertexai.Client(project=config.PROJECT_ID, location=config.AGENT_ENGINE_LOCATION)
+
+
+def _engine() -> str:
+    return (f"projects/{config.PROJECT_ID}/locations/{config.AGENT_ENGINE_LOCATION}"
+            f"/reasoningEngines/{config.AGENT_ENGINE_ID}")
+
+
+def normalize_address(address: str) -> str:
+    return " ".join(re.sub(r"[^a-z0-9 ]", " ", (address or "").lower()).split())
+
+
+def _list_addresses(email: str) -> list[dict]:
+    out = []
+    for item in _client().agent_engines.memories.retrieve(
+            name=_engine(), scope={"app_name": _ADDRESS_SCOPE_APP, "user_id": email},
+            simple_retrieval_params={"page_size": 50}):
+        fact = (item.memory.fact or "") if item.memory else ""
+        if fact.startswith(_ADDRESS_PREFIX):
+            try:
+                out.append(json.loads(fact[len(_ADDRESS_PREFIX):]) | {"memory": item.memory.name})
+            except ValueError:
+                continue
+    return out
+
+
+async def saved_addresses(email: str) -> list[dict]:
+    """The person's saved permanent delivery addresses: [{"label", "address"}]. Never fails."""
+    if not email:
+        return []
+    try:
+        found = await asyncio.wait_for(asyncio.to_thread(_list_addresses, email), timeout=8)
+    except Exception as exc:  # noqa: BLE001 - a convenience, not a dependency
+        logger.warning("saved addresses not loaded: %s", type(exc).__name__)
+        return []
+    unique: dict[str, dict] = {}
+    for a in found:
+        unique.setdefault(normalize_address(a.get("address", "")), {"label": a.get("label") or "Saved address",
+                                                                    "address": a.get("address", "")})
+    return [a for a in unique.values() if a["address"]]
+
+
+def _save_address(email: str, label: str, address: str) -> None:
+    existing = _list_addresses(email)
+    key = normalize_address(address)
+    if any(normalize_address(a.get("address", "")) == key for a in existing):
+        return
+    for a in existing:  # a new address for the same label (they moved) replaces the old one
+        if label and (a.get("label") or "").lower() == label.lower():
+            _client().agent_engines.memories.delete(name=a["memory"])
+    _client().agent_engines.memories.create(
+        name=_engine(), fact=_ADDRESS_PREFIX + json.dumps({"label": label, "address": address}),
+        scope={"app_name": _ADDRESS_SCOPE_APP, "user_id": email}, config={"wait_for_completion": False})
+
+
+async def save_address(email: str, label: str, address: str) -> None:
+    """Remembers a permanent delivery address, verbatim. Never fails the turn."""
+    if not email or not address:
+        return
+    try:
+        await asyncio.wait_for(asyncio.to_thread(_save_address, email, label, address), timeout=10)
+        logger.info("saved a delivery address (%s)", label or "no label")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("delivery address not saved: %s", type(exc).__name__)
 
 
 async def remember_conversation(ctx: ToolContext, email: str) -> None:

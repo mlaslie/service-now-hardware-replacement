@@ -55,3 +55,10 @@ async def test_change_not_applied_is_noted_and_reported(monkeypatch):
     assert patches[0]["state"] == "2" and patches[0]["comments"] == "tracking number doesn't work"
     assert "Status: In Progress" in patches[1]["comments"]  # the request is recorded for the desk
     assert "Not changed due to ServiceNow policy" in result["ticket"]["note"]
+
+
+
+def test_extracted_delivery_memories_are_not_shown():
+    from app import memory
+    assert memory._DELIVERY_WORDS.search("Last time the laptop was shipped to a Marriott hotel in Chicago")
+    assert not memory._DELIVERY_WORDS.search("Prefers to be contacted by text message")

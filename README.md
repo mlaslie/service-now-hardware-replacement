@@ -4,7 +4,18 @@ An ADK agent on Cloud Run, served to a Gemini Enterprise app over A2A, that lets
 report broken hardware in a sentence or a photo and follow up on it, filed in ServiceNow **as that
 person**. It covers personal devices (replaced and shipped) and shared or clinical equipment such as
 MRI and CT scanners, infusion pumps, patient monitors and beds (repaired on site by the team that
-supports them). Cards are A2UI v0.8 in the web app; the mobile app gets the same steps as numbered text.
+supports them). Cards are A2UI v0.9 in the web app (v0.8 for a client that still negotiates it); the mobile app gets the same steps as numbered text.
+
+## Documentation
+
+| Read | For |
+|---|---|
+| **`docs/site/index.html`** | Everything below as one navigable page: fill in your values once, copy every command |
+| [docs/INSTALL.md](docs/INSTALL.md) | Install from scratch, step by step |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it works: diagrams and a module map |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | `.env` settings and the organization profile (`config/organization.yaml`) |
+| [docs/ROLES.md](docs/ROLES.md) | ServiceNow roles, measured, and the permission checker |
+| [docs/HANDOFF.md](docs/HANDOFF.md), [docs/BACKLOG.md](docs/BACKLOG.md) | Project history, decisions, what's next |
 
 ## What it does
 
@@ -40,7 +51,7 @@ Gemini Enterprise ──A2A (message/stream)──▶ Cloud Run: this agent
  app/server.py   resolve user from ServiceNow, stage photos as artifacts, A2UI clicks -> text
  app/agent.py    LlmAgent (gemini-3.8-flash, global), card swap-in callbacks
  app/tools.py    wizard + ticket tools, one attempt/verify/note path for every change
- app/cards.py    deterministic A2UI v0.8 cards (the model never writes UI JSON)
+ app/cards.py    deterministic A2UI v0.9 cards (the model never writes UI JSON), v0.8 and text renderings
  app/vision.py   structured photo analysis
  app/servicenow.py  Table API client, always as the signed-in user; ticket queries are
                     always scoped to (caller_id = user OR watch_list has user) and category = hardware
@@ -84,8 +95,9 @@ in a request-scoped ContextVar and never written to state, memory or logs.
 ## Run locally
 
 ```bash
+cp .env.example .env        # fill in the required values
 uv sync
-uv run pytest
+uv run --group seed pytest
 uv run uvicorn app.server:app --port 8080
 uv run python scripts/chat.py --user-token "<servicenow access token>"
 ```
@@ -93,35 +105,34 @@ uv run python scripts/chat.py --user-token "<servicenow access token>"
 `chat.py` is an A2A client that behaves like Gemini Enterprise: type text,
 `/photo path.jpg`, `/click N`.
 
-## Deploy
+## Install and deploy
 
 ```bash
-./scripts/deploy.sh
+./scripts/setup.sh     # once: APIs, bucket, service account, Agent Runtime instance
+./scripts/deploy.sh    # every change: checks the profile, deploys, grants Gemini Enterprise access
 ```
 
-Deploys with `--no-allow-unauthenticated`, grants `run.invoker` to the Discovery Engine
-service agent (scoped to the service), and sets the environment from `app/config.py`.
-Register the agent in Gemini Enterprise as A2A with the card at
-`https://<service-url>/.well-known/agent-card.json` and the ServiceNow authorization.
+Full steps, including ServiceNow and Gemini Enterprise registration: [docs/INSTALL.md](docs/INSTALL.md).
 
-## Configuration (`app/config.py`)
+## Configuration
 
-| Variable | Default |
-|---|---|
-| `GOOGLE_CLOUD_PROJECT` | `PROJECT_ID` |
-| `MODEL` / `VISION_MODEL` | `gemini-3.8-flash` (location `global`) |
-| `SN_INSTANCE_URL` | `https://INSTANCE.service-now.com` |
-| `AGENT_ENGINE_ID` / `AGENT_ENGINE_LOCATION` | code-less engine for Sessions + Memory Bank |
-| `ARTIFACT_BUCKET` | `<project>-hardware-ticket-photos` |
-| `SERVICE_URL` | the public Cloud Run URL (advertised in the agent card) |
-| `ASSET_TABLES` | `alm_hardware` (add e.g. a clinical device table if equipment lives elsewhere) |
-| `CLINICAL_CATEGORIES` | model categories treated as medical equipment (Imaging Equipment, Patient Care Equipment, ...) |
-| `ASSET_TAG_HINT` | how asset tags look, for the photo model |
+- **`.env`** (from `.env.example`): project, region, ServiceNow instance, model. Never committed.
+- **`config/organization.yaml`**: agent name and persona, button colour, problem choices with
+  photo and urgency rules, device rules, response targets and texts. Check it with
+  `uv run python -m app.profile`. Example for an office: `config/examples/office.yaml`.
+
+Every field: [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+
+## ServiceNow permissions
+
+The agent acts as each signed-in user. `itil` enables every feature; no roles works with limits.
+Check any user with `uv run python scripts/sn_doctor.py --as <user>`: [docs/ROLES.md](docs/ROLES.md).
 
 ## Known limits
 
-- Gemini Enterprise renders A2UI v0.8 with its own theme; `primaryColor`, `font` and
-  `primary` buttons are sent but not applied.
+- The agent card declares A2UI v0.9 and v0.8; Gemini Enterprise picks v0.9 (sends `theme.primaryColor`).
+  After changing the declared versions, delete and re-add the agent: GE keeps the card from registration.
+- The Gemini Enterprise mobile app renders no A2UI, so the first reply asks desktop or mobile.
 - ServiceNow developer instances hibernate; the agent reports "ServiceNow is waking up".
 
 ## Demo data: seed, report and reset (`seed/sn_seed.py`)

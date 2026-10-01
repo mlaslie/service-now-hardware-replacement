@@ -128,8 +128,18 @@ def sn(monkeypatch):
     async def attach(ctx, sys_id, draft):
         return None
 
+    async def saved_addresses(email):
+        return list(api.saved.get(email, []))
+
+    async def save_address(email, label, address):
+        api.saved.setdefault(email, []).append({"label": label, "address": address})
+        api.saved_calls.append((email, label, address))
+
+    api.saved, api.saved_calls = {}, []
     monkeypatch.setattr(memory, "recall", recall)
     monkeypatch.setattr(memory, "remember_conversation", remember)
+    monkeypatch.setattr(memory, "saved_addresses", saved_addresses)
+    monkeypatch.setattr(memory, "save_address", save_address)
     monkeypatch.setattr(tools, "_attach_photos", attach)
     return api
 
@@ -656,3 +666,86 @@ async def test_equipment_tag_photo_needs_no_confirmation(sn, monkeypatch):
     result = await tools.set_issue("safety_concern", "Door cracked, could free-flow", "normal", ctx)
     assert result["step"] == "review" and draft(ctx)["device"]["relation"] == "unconfirmed"
     assert "Clinical Engineering" in card_text(ctx)
+
+
+
+# --- delivery addresses ----------------------------------------------------------------
+
+HOME = "742 Evergreen Terrace, Kansas City, MO 64110"
+JOE_EMAIL = "jane.doe@example.com"
+
+
+async def _to_review(ctx):
+    await pick(ctx, "123456")
+    return await tools.set_issue("wont_power_on", "Dead", "normal", ctx)
+
+
+async def test_saved_address_is_offered_but_not_applied(sn):
+    sn.saved[JOE_EMAIL] = [{"label": "Home", "address": HOME}]
+    ctx = ctx_for()
+    result = await _to_review(ctx)
+    assert result["ship_to"] == "1200 Harbor Health Way"  # the address on file
+    assert f"Ship to Home instead: {HOME}" in card_text(ctx)
+    await tools.submit_ticket(ctx)  # "everything looks good" = submit as shown
+    assert "Ship to: 1200 Harbor Health Way" in sn.tables["incident"][0]["description"]
+
+
+async def test_clicking_the_saved_address_uses_the_full_address(sn):
+    sn.saved[JOE_EMAIL] = [{"label": "Home", "address": HOME}]
+    ctx = ctx_for()
+    await _to_review(ctx)
+    result = await tools.choose_ship_to(HOME, ctx)
+    assert result["ship_to"] == HOME and "Ship to my address on file instead" in card_text(ctx)
+    await tools.submit_ticket(ctx)
+    assert f"Ship to: {HOME}" in sn.tables["incident"][0]["description"]
+    assert sn.saved_calls == []  # already saved
+
+
+async def test_ship_to_my_house_resolves_to_the_saved_address(sn):
+    sn.saved[JOE_EMAIL] = [{"label": "Home", "address": HOME}]
+    ctx = ctx_for()
+    await _to_review(ctx)
+    result = await tools.update_request(ctx, delivery_location="my house")
+    assert result["ship_to"] == HOME
+
+
+async def test_a_place_name_is_not_an_address(sn):
+    ctx = ctx_for()
+    await _to_review(ctx)
+    result = await tools.update_request(ctx, delivery_location="the Marriott in Chicago")
+    assert result["status"] == "need_address" and "delivery" not in draft(ctx)
+
+
+async def test_hotel_is_used_once_and_never_saved(sn):
+    ctx = ctx_for()
+    await _to_review(ctx)
+    hotel = "Chicago Marriott Downtown, 540 N Michigan Ave, Chicago, IL 60611"
+    result = await tools.update_request(ctx, delivery_location=hotel)
+    assert result["ship_to"] == hotel and draft(ctx)["delivery"]["kind"] == "temporary"
+    await tools.submit_ticket(ctx)
+    assert f"Ship to: {hotel}" in sn.tables["incident"][0]["description"]
+    assert sn.saved_calls == []
+
+
+async def test_new_home_address_is_saved_verbatim(sn):
+    ctx = ctx_for()
+    await _to_review(ctx)
+    await tools.update_request(ctx, delivery_location=HOME, delivery_label="Home", delivery_kind="permanent")
+    await tools.submit_ticket(ctx)
+    assert sn.saved_calls == [(JOE_EMAIL, "Home", HOME)]
+
+
+async def test_back_to_the_address_on_file(sn):
+    ctx = ctx_for()
+    await _to_review(ctx)
+    await tools.update_request(ctx, delivery_location=HOME, delivery_kind="permanent")
+    result = await tools.update_request(ctx, delivery_location="my usual address")
+    assert result["ship_to"] == "1200 Harbor Health Way" and "delivery" not in draft(ctx)
+
+
+async def test_changing_a_filed_tickets_ship_to_needs_a_real_address(sn):
+    sn.saved[JOE_EMAIL] = [{"label": "Home", "address": HOME}]
+    ctx = ctx_for()
+    filed = await _file(ctx)
+    result = await tools.update_ticket(filed["ticket"], ctx, ship_to="the hotel")
+    assert result["status"] == "need_address"

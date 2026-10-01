@@ -7,6 +7,9 @@ steps, problems already solved, lessons learned and open items.
   `~/google-cloud-sdk/bin/gcloud`.
 - Commits: repo-local identity is set; **no Claude/Anthropic co-author trailers or footers**.
 - Push: `git push` to `origin` (private repo `OWNER/service-now-hardware-replacement`), only when asked.
-- Tests: `uv run --group seed pytest`. Deploy: `./scripts/deploy.sh`.
+- Tests: `uv run --group seed pytest`. Deploy: `./scripts/deploy.sh` (reads `.env`, which is local and not committed).
+- Organization behaviour (names, colour, problem choices, rules) is `config/organization.yaml`, not code;
+  check with `uv run python -m app.profile`. Docs: `docs/INSTALL.md`, `CONFIGURATION.md`, `ROLES.md`,
+  `ARCHITECTURE.md`, `docs/site/index.html`.
 - The agent acts in ServiceNow as the signed-in user. Never claim a change succeeded without
   reading it back (`_apply_changes` in `app/tools.py`).

@@ -14,6 +14,9 @@ from google.genai import types
 from pydantic import BaseModel, Field
 
 from app import config
+from app.profile import current as _current_profile
+
+PROFILE = _current_profile()
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +47,9 @@ class PhotoFindings(BaseModel):
     damage_present: bool = False
     damage_description: str = Field(default="", description="One plain-language sentence a non-technical person understands")
     damage_severity: Severity = Severity.none
-    issue_category: str = Field(default="", description="For personal devices one of: cracked_screen, physical_damage, liquid_damage, battery, keyboard_trackpad, wont_power_on, other. For medical or shared equipment one of: error_alarm (an error or alarm on screen), damaged, safety_concern, not_working, other. Empty if no fault is visible")
+    issue_category: str = Field(default="", description=(
+        f"For personal devices one of: {', '.join(PROFILE.keys('personal'))}. For medical or shared "
+        f"equipment one of: {', '.join(PROFILE.keys('equipment'))}. Empty if no fault is visible"))
     supports_replacement: bool = Field(default=False, description="True when the visible damage alone justifies replacing rather than repairing")
     confidence: float = Field(default=0.0, ge=0, le=1, description="Confidence in the identification and label reading")
     notes: str = Field(default="", description="Anything unreadable or uncertain, e.g. 'serial partially obscured by glare'")
@@ -62,9 +67,9 @@ Rules:
 - You cannot decode barcodes or QR codes. Read only the characters printed next to them.
 - Damage: describe only what is visible. Cracks, spider-webbing, dead pixels, dents, bent
   hinges, missing keys, swollen battery (lifted trackpad or bulging case), corrosion.
-- Medical equipment: read error codes or alarm text on its screen into damage_description, and
-  use safety_concern for anything that could harm a patient (exposed wiring, broken bed rails,
-  cracked pump housing, fluid inside).
+- Medical or shared equipment: read error codes or alarm text on its screen into
+  damage_description, and use {safety_key} for anything that could harm a person (exposed wiring,
+  broken bed rails, cracked pump housing, fluid inside).
 - supports_replacement is true for cracked or shattered screens, swollen batteries, broken
   hinges, liquid corrosion, or a cracked chassis.
 """
@@ -79,7 +84,8 @@ def _client() -> genai.Client:
 
 
 async def analyze_photo(gcs_uri: str, mime_type: str, context_hint: str = "") -> PhotoFindings:
-    prompt = _PROMPT.replace("{asset_tag_hint}", config.ASSET_TAG_HINT)
+    prompt = (_PROMPT.replace("{asset_tag_hint}", PROFILE.devices.asset_tag_hint)
+              .replace("{safety_key}", (PROFILE.safety_keys or ["damaged"])[0]))
     if context_hint:
         prompt += f"\nWhat the employee said about the problem: {context_hint}\n"
     response = await _client().aio.models.generate_content(
