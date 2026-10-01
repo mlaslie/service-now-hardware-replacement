@@ -93,21 +93,38 @@ tools don't set up. Terraform is on the backlog (G2.4).
 
 ## 7. Register in Gemini Enterprise
 
-1. Get the agent card:
-   ```bash
-   curl -s -H "Authorization: Bearer $(gcloud auth print-identity-token)" https://SERVICE_NAME-PROJECT_NUMBER.REGION.run.app/.well-known/agent-card.json
-   ```
-2. Google Cloud console > **Gemini Enterprise** > your app > **Agents** > **Add Agents** > **Custom agent
-   via A2A** > **Add**, and paste the card JSON into **Agent card JSON**. ([Register and manage A2A agents](https://docs.cloud.google.com/gemini/enterprise/docs/register-and-manage-an-a2a-agent),
-   [agents using A2UI](https://docs.cloud.google.com/gemini/enterprise/docs/a2ui-agents/register-and-manage-an-a2ui-agent).)
-3. Add an **authorization** with the ServiceNow client from step 2:
+First copy the agent card (the JSON that describes the agent):
+```bash
+curl -s -H "Authorization: Bearer $(gcloud auth print-identity-token)" https://SERVICE_NAME-PROJECT_NUMBER.REGION.run.app/.well-known/agent-card.json
+```
 
-   | Field | Value |
-   |---|---|
-   | Client ID / secret | from step 2 |
-   | Authorization URL | `INSTANCE/oauth_auth.do?response_type=code&client_id=CLIENT_ID&redirect_uri=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Foauth-redirect&scope=useraccount` |
-   | Token URL | `INSTANCE/oauth_token.do` |
-   | Scope | `useraccount` |
+**7a. Choose the agent type.** Google Cloud console > **Gemini Enterprise** > your app > **Agents** >
+**Add Agents**. On **Custom agent via A2A**, click **Add**.
+
+<img src="site/img/ge-01-add-a2a-agent.png" alt="The Custom agent via A2A card with its Add link" width="300">
+
+**7b. Paste the agent card.** Paste the JSON into **Agent Card JSON**, click **Preview Agent Details**
+and check: the agent name, the Agent URL (your Cloud Run URL), and the capabilities *Streaming* plus
+**two** "Provides agent driven UI using the A2UI JSON format" entries (A2UI v0.9 and v0.8, both
+expected). A broken icon image is normal. Click **Next**.
+
+<img src="site/img/ge-02-import-agent-card.png" alt="Import Agent: Agent Card JSON, Preview Agent Details, and the agent details table" width="520">
+
+**7c. Add the ServiceNow authorization.**
+
+<img src="site/img/ge-03-authorization.png" alt="Agent authorization: client ID and secret, authorization and token URLs, scopes, PKCE unchecked" width="520">
+
+| Field | Enter |
+|---|---|
+| Client ID / Client secret | The ServiceNow OAuth client from step 2 |
+| Authorization URL | `INSTANCE/oauth_auth.do?response_type=code&client_id=CLIENT_ID&redirect_uri=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Foauth-redirect&scope=useraccount` |
+| Token URL | `INSTANCE/oauth_token.do` |
+| Scopes | `useraccount` |
+| PKCE verification enabled | leave unchecked |
+
+Click **Finish** (not *Skip & Finish*: without the authorization the agent can't act as the user).
+Google's guides: [Register and manage A2A agents](https://docs.cloud.google.com/gemini/enterprise/docs/register-and-manage-an-a2a-agent),
+[agents using A2UI](https://docs.cloud.google.com/gemini/enterprise/docs/a2ui-agents/register-and-manage-an-a2ui-agent).
 
 Good to know: one authorization belongs to one agent; to change an agent's card or authorization,
 delete and re-add the agent; users authorize on first use and should do so **not** signed in to

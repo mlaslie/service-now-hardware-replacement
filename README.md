@@ -112,7 +112,26 @@ uv run python scripts/chat.py --user-token "<servicenow access token>"
 ./scripts/deploy.sh    # every change: checks the profile, deploys, grants Gemini Enterprise access
 ```
 
-Full steps, including ServiceNow and Gemini Enterprise registration: [docs/INSTALL.md](docs/INSTALL.md).
+Full steps, including ServiceNow setup: [docs/INSTALL.md](docs/INSTALL.md).
+
+### Register in Gemini Enterprise
+
+Copy the agent card (`curl -s -H "Authorization: Bearer $(gcloud auth print-identity-token)" <service URL>/.well-known/agent-card.json`), then in the Google Cloud console: **Gemini Enterprise** > your app > **Agents** > **Add Agents**:
+
+1. On **Custom agent via A2A**, click **Add**.
+
+   <img src="docs/site/img/ge-01-add-a2a-agent.png" alt="The Custom agent via A2A card with its Add link" width="300">
+
+2. Paste the card into **Agent Card JSON**, click **Preview Agent Details**, check the name, the
+   Cloud Run URL and the **two** A2UI capability entries (v0.9 and v0.8), then **Next**.
+
+   <img src="docs/site/img/ge-02-import-agent-card.png" alt="Import Agent: Agent Card JSON, Preview Agent Details, and the agent details" width="480">
+
+3. Add the ServiceNow authorization: the ServiceNow OAuth client ID and secret, Authorization URL
+   `<instance>/oauth_auth.do?response_type=code&client_id=<client id>&redirect_uri=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Foauth-redirect&scope=useraccount`,
+   Token URL `<instance>/oauth_token.do`, scope `useraccount`, PKCE unchecked, then **Finish**.
+
+   <img src="docs/site/img/ge-03-authorization.png" alt="Agent authorization: client ID and secret, authorization and token URLs, scopes, PKCE unchecked" width="480">
 
 ## Configuration
 

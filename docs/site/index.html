@@ -136,6 +136,18 @@
   .chip.no { color: var(--no); background: var(--no-soft); }
   .chip.part { color: var(--part); background: var(--part-soft); }
 
+  .shot { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 300px); gap: 20px; align-items: start;
+          margin: 18px 0; padding-top: 14px; border-top: 1px dashed var(--line); }
+  .shot h4 { font: 600 15.5px/1.3 var(--sans); margin: 0 0 6px; }
+  .shot .sub { font: 600 12px/1 var(--mono); color: var(--accent-ink); background: var(--accent); border-radius: 4px; padding: 3px 6px; margin-right: 6px; }
+  .shot ol, .shot ul { padding-left: 20px; margin: 6px 0; }
+  .shot-img { display: block; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff;
+              box-shadow: 0 1px 2px rgb(0 0 0 / .06); }
+  .shot-img img { display: block; width: 100%; height: auto; }
+  .shot-img:hover { border-color: var(--accent); }
+  .small { font-size: 13.5px; color: var(--muted); }
+  table.fields td:first-child { white-space: nowrap; font-weight: 500; }
+  @media (max-width: 720px) { .shot { grid-template-columns: minmax(0, 1fr); } .shot-img { max-width: 420px; } }
   .note { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 14px 0; }
   .note.warn { border-color: var(--part); background: var(--part-soft); }
   .note p { margin: 0; }
@@ -434,27 +446,67 @@ uv run python -m app.profile</pre></div>
       </div>
 
       <div class="step" data-step="register"><h3><span class="num">7</span>Register in Gemini Enterprise<label><input type="checkbox"> Done</label></h3>
-        <p>Get the agent card:</p>
-        <div class="cmd-wrap"><div class="cmd-head"><span>shell</span><button class="copy" type="button">Copy</button></div>
+        <p>Three screens. First copy the agent card (the JSON that describes the agent):</p>
+        <div class="cmd-wrap"><div class="cmd-head"><span>shell · copy the output</span><button class="copy" type="button">Copy</button></div>
 <pre class="cmd">curl -s -H "Authorization: Bearer $(gcloud auth print-identity-token)" {SERVICE_URL}/.well-known/agent-card.json</pre></div>
-        <p>Google Cloud console &gt; <strong>Gemini Enterprise</strong> &gt; your app &gt; <strong>Agents</strong> &gt; <strong>Add Agents</strong> &gt;
-          <strong>Custom agent via A2A</strong> &gt; <strong>Add</strong>, paste the card into <strong>Agent card JSON</strong>
-          (<a class="ext" href="https://docs.cloud.google.com/gemini/enterprise/docs/register-and-manage-an-a2a-agent" target="_blank" rel="noopener">Register and manage A2A agents</a>,
-          <a class="ext" href="https://docs.cloud.google.com/gemini/enterprise/docs/a2ui-agents/register-and-manage-an-a2ui-agent" target="_blank" rel="noopener">agents using A2UI</a>).
-          Then add an authorization:</p>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Field</th><th>Value</th></tr></thead>
-          <tbody>
-            <tr><td>Client ID / secret</td><td>From step 2</td></tr>
-            <tr><td>Scope</td><td><code>useraccount</code></td></tr>
-          </tbody>
-        </table></div>
-        <div class="cmd-wrap"><div class="cmd-head"><span>authorization URL</span><button class="copy" type="button">Copy</button></div>
+
+        <div class="shot">
+          <div class="shot-text">
+            <h4><span class="sub">7a</span> Choose the agent type</h4>
+            <p>Google Cloud console &gt; <strong>Gemini Enterprise</strong> &gt; your app &gt; <strong>Agents</strong> &gt; <strong>Add Agents</strong>.
+              On <strong>Custom agent via A2A</strong>, click <strong>Add</strong>.</p>
+          </div>
+          <a class="shot-img" href="img/ge-01-add-a2a-agent.png" target="_blank" rel="noopener"><img src="img/ge-01-add-a2a-agent.png" width="334" height="212" loading="lazy"
+            alt="The 'Custom agent via A2A' card, 'Custom Agents deployed anywhere that speak A2A protocol', with an Add link"></a>
+        </div>
+
+        <div class="shot">
+          <div class="shot-text">
+            <h4><span class="sub">7b</span> Paste the agent card</h4>
+            <ol>
+              <li>Paste the JSON from the command above into <strong>Agent Card JSON</strong>.</li>
+              <li>Click <strong>Preview Agent Details</strong> and check:
+                <ul>
+                  <li><strong>Agent name</strong>: <code>agent.name</code> from your profile</li>
+                  <li><strong>Agent URL</strong>: <code class="live" data-tpl="{SERVICE_URL}/"></code></li>
+                  <li><strong>Agent capabilities</strong>: <em>Streaming</em> and <strong>two</strong> "Provides agent driven UI using the A2UI JSON format" (A2UI v0.9 and v0.8: both expected)</li>
+                </ul></li>
+              <li>Click <strong>Next</strong>.</li>
+            </ol>
+            <p class="small">A broken icon next to "Icon" is normal: the card has no icon.</p>
+          </div>
+          <a class="shot-img" href="img/ge-02-import-agent-card.png" target="_blank" rel="noopener"><img src="img/ge-02-import-agent-card.png" width="682" height="908" loading="lazy"
+            alt="Import Agent screen: Agent Card JSON field, Preview Agent Details button, and the agent details table: name, description, URL, protocol 0.3.0, capabilities Streaming and two A2UI entries, skills"></a>
+        </div>
+
+        <div class="shot">
+          <div class="shot-text">
+            <h4><span class="sub">7c</span> Add the ServiceNow authorization</h4>
+            <p>The fields on the <strong>Agent authorization</strong> screen, with your values:</p>
+            <div class="table-wrap"><table class="fields">
+              <thead><tr><th>Field</th><th>Enter</th></tr></thead>
+              <tbody>
+                <tr><td>Client ID</td><td>The ServiceNow OAuth client ID from step 2: <code class="live" data-tpl="{CLIENT_ID}"></code></td></tr>
+                <tr><td>Client secret</td><td>Its client secret (from ServiceNow; never shown here)</td></tr>
+                <tr><td>Authorization URL</td><td>below</td></tr>
+                <tr><td>Token URL</td><td>below</td></tr>
+                <tr><td>Scopes</td><td><code>useraccount</code></td></tr>
+                <tr><td>PKCE verification enabled</td><td>leave <strong>unchecked</strong></td></tr>
+              </tbody>
+            </table></div>
+            <p>Click <strong>Finish</strong>, not <em>Skip &amp; Finish</em>: without the authorization the agent can't act as the user in ServiceNow.</p>
+          </div>
+          <a class="shot-img" href="img/ge-03-authorization.png" target="_blank" rel="noopener"><img src="img/ge-03-authorization.png" width="682" height="793" loading="lazy"
+            alt="Agent authorization screen: Client ID, Client secret, Authorization URL, Token URL, Scopes 'useraccount', PKCE verification checkbox unchecked, Finish button"></a>
+        </div>
+        <div class="cmd-wrap"><div class="cmd-head"><span>Authorization URL</span><button class="copy" type="button">Copy</button></div>
 <pre class="cmd">{AUTH_URL}</pre></div>
-        <div class="cmd-wrap"><div class="cmd-head"><span>token URL</span><button class="copy" type="button">Copy</button></div>
+        <div class="cmd-wrap"><div class="cmd-head"><span>Token URL</span><button class="copy" type="button">Copy</button></div>
 <pre class="cmd">{INSTANCE}/oauth_token.do</pre></div>
         <div class="note warn"><p>One authorization belongs to one agent. To change an agent's card or authorization, delete and re-add the agent.
           Users should authorize in a browser <strong>not</strong> signed in to ServiceNow as an admin, or the agent acts as the admin.</p></div>
+        <p class="small">Google's guide: <a class="ext" href="https://docs.cloud.google.com/gemini/enterprise/docs/register-and-manage-an-a2a-agent" target="_blank" rel="noopener">Register and manage A2A agents</a>,
+          <a class="ext" href="https://docs.cloud.google.com/gemini/enterprise/docs/a2ui-agents/register-and-manage-an-a2ui-agent" target="_blank" rel="noopener">agents using A2UI</a>.</p>
       </div>
 
       <div class="step" data-step="try"><h3><span class="num">8</span>Try it<label><input type="checkbox"> Done</label></h3>
