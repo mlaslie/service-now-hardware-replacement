@@ -2,7 +2,7 @@
 
 Background for anyone (or any Claude session) picking this project up. It records what was
 built, where everything lives, what went wrong and how it was fixed, and what's still open.
-Last updated 2026-10-01. Latest commit on `main`: see `git log`; live revision `00029`.
+Last updated 2026-10-01. `main` at `ed535c3` (all pushed, nothing uncommitted); live Cloud Run revision `00029`.
 
 **No secret values are in this file.** Secrets are named with where they live.
 
@@ -34,6 +34,7 @@ buttons; mobile: numbered text after a "Desktop or Mobile App?" question) for `j
 | 09-30 | A2UI v0.9 (v0.8 fallback), green primary buttons (theme.primaryColor); throwaway `a2ui-v09-probe` showed mobile can't be detected and renders no A2UI |
 | 09-30 | Verbatim saved delivery addresses (no hotels; never applied on "looks good") |
 | 09-30 | Adoption kit: `.env` settings, organization profile, setup.sh, docs + HTML site, `sn_doctor` role matrix |
+| 10-01 | README overview rewritten (also in the HTML docs); demo users made generic and configurable (Jane/John Doe, `demo_role`, `demo/build_demo.py`); agent-card updates by editing the agent in GE (no re-add) |
 | 10-01 | Ticket field mapping + `sn_profile.py`; model-routing evals (found and fixed a dropped-problem bug); custom role `u_hardware_requester` created and measured; Jane moved to it; registration screenshots; README overview rewritten |
 
 ---
@@ -246,6 +247,10 @@ uv run --group seed pytest                      # everything: 48 tests
   Stage them before the runner (the session event cap is 10MB) and raise the A2A body limit to 32MB.
 - **User-facing honesty rule:** changed vs requested-and-noted must always be explicit.
 - **Test data hygiene:** tests run as the real user's email pollute Memory Bank; use test emails.
+- **Agent card updates in GE:** edit the agent, paste the updated card and save; no delete and re-add (user-confirmed).
+  Re-adding is only needed to reset a user's authorization (e.g. it signed in as admin).
+- **Nothing personal in committed files:** demo users, instance names and local paths live in uncommitted files
+  (`seed/users.json`, `.env`, `demo/DEMO.local.html`); committed examples use example.com users.
 - **Configuration over code:** organization behaviour lives in `config/organization.yaml` (validated at
   start-up); settings in `.env`. Change the profile, run `uv run python -m app.profile`, deploy.
 - **ServiceNow ACLs can't be created through the API** (needs an elevated `security_admin` session): ship them as a
@@ -269,14 +274,14 @@ uv run --group seed pytest                      # everything: 48 tests
 
 The prioritized backlog is `docs/BACKLOG.md` (section G = adoption kit, F = hospital follow-ups, D = ideas).
 
-1. **Uncommitted:** the README overview rewrite (2026-10-01) is waiting for the user's review; commit and push when approved.
-2. **Manual testing in Gemini Enterprise** by the user (web + mobile, Jane and John), using `demo/DEMO.html`.
-3. **Next to build** (agreed order): G3.3 wording in `messages.yaml` (opens languages), G1.2 split `app/tools.py`
+1. **Manual testing in Gemini Enterprise** by the user (web + mobile; Jane = custom role, John = itil), with the
+   personal run sheet `demo/DEMO.local.html` (`uv run python demo/build_demo.py`).
+2. **Next to build** (agreed order): G3.3 wording in `messages.yaml` (opens languages), G1.2 split `app/tools.py`
    (1,300 lines), G3.12 customization recipes; F1 live pass; ticket table/catalog item option (rest of G3.7).
-4. **Cleanup** (needs explicit user naming): secrets `servicenow-integration`, `servicenow-oauth`; Firestore DB
+3. **Cleanup** (needs explicit user naming): secrets `servicenow-integration`, `servicenow-oauth`; Firestore DB
    `hardware-tickets`; ServiceNow clients "Hardware Replacement Agent" and "…Agent 2"; GE `a2a_probe` and
    `~/ADK/a2a-runtime-probe`. Keep `a2ui-v09-probe` (user's request).
-5. **Production hardening:** decide `u_hardware_requester` vs a scripted REST API / Service Catalog item with the
+4. **Production hardening:** decide `u_hardware_requester` vs a scripted REST API / Service Catalog item with the
    customer's ServiceNow team (licensing); SSO between Google and ServiceNow; admin-account guard (D11).
 
 ---

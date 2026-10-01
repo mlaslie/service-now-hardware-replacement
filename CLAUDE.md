@@ -10,6 +10,9 @@ steps, problems already solved, lessons learned and open items.
 - Unit tests: `uv run --group seed pytest` (check the exit code before committing; don't pipe it through `tail` in a commit chain). Model-routing evals: `uv run python evals/run.py`.
 - ServiceNow admin tools (sign in with `seed/sn_seed.py login`): `scripts/sn_doctor.py` (permission checker), `scripts/sn_profile.py` (profile vs. instance), `scripts/sn_custom_role.py`.
 - Run scripts from the repo root.
+- Never commit personal data: this environment's users live in the uncommitted `seed/users.json` (demo run sheet:
+  `uv run python demo/build_demo.py` -> `demo/DEMO.local.html`); committed examples use Jane/John Doe at example.com.
+  After changing `demo/DEMO.template.html`, rebuild the committed sheet with `--example`.
 - Deploy: `./scripts/deploy.sh` (reads `.env`, which is local and not committed).
 - Organization behaviour (names, colour, problem choices, rules) is `config/organization.yaml`, not code;
   check with `uv run python -m app.profile`. Docs: `docs/INSTALL.md`, `CONFIGURATION.md`, `ROLES.md`,
