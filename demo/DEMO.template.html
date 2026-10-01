@@ -178,12 +178,12 @@
       the right room, people who report the same thing join one ticket, and "any update?" always gets a live answer.</p>
 
     <div class="cast">
-      <div class="person"><span class="who clin">Jane · phone</span>
-        <b style="margin-top:8px">Jane Doe</b><small>MRI Technologist, Radiology</small>
-        <small class="mono">jane.doe@example.com · jane.doe</small></div>
-      <div class="person"><span class="who it">John · desktop</span>
-        <b style="margin-top:8px">John Doe</b><small>IT Systems Analyst, IT · Service Desk group</small>
-        <small class="mono">john.doe@example.com · john.doe</small></div>
+      <div class="person"><span class="who clin">{{C_FIRST}} · phone</span>
+        <b style="margin-top:8px">{{C_NAME}}</b><small>{{C_TITLE}}, {{C_DEPT}}</small>
+        <small class="mono">{{C_EMAIL}} · {{C_USER}}</small></div>
+      <div class="person"><span class="who it">{{I_FIRST}} · desktop</span>
+        <b style="margin-top:8px">{{I_NAME}}</b><small>{{I_TITLE}}, {{I_DEPT}} · Service Desk group</small>
+        <small class="mono">{{I_EMAIL}} · {{I_USER}}</small></div>
       <div class="person"><span class="who desk">Service desk</span>
         <b style="margin-top:8px">You, in ServiceNow</b><small>Works the tickets between scenes</small>
         <small class="mono">admin</small></div>
@@ -215,27 +215,27 @@
         <div class="body"><p class="label">Optional handout: the asset register PDF</p>
           <div class="phrase"><code>cd ~/ADK/hardware_replacement &amp;&amp; uv run --group seed python seed/sn_seed.py report &amp;&amp; open seed/state/office-assets.pdf</code><button type="button">Copy</button></div>
         </div></li>
-      <li class="step" data-id="prep-pass"><input type="checkbox" id="c-prep-pass" aria-label="Done: Jane's password">
-        <div class="body"><p class="label">Jane has a ServiceNow password</p>
-          <p class="expect">As admin: <a href="https://<instance>.service-now.com/sys_user_list.do?sysparm_query=user_name%3Djane.doe" target="_blank" rel="noopener">jane.doe's user record</a>,
+      <li class="step" data-id="prep-pass"><input type="checkbox" id="c-prep-pass" aria-label="Done: {{C_FIRST}}'s password">
+        <div class="body"><p class="label">{{C_FIRST}} has a ServiceNow password</p>
+          <p class="expect">As admin: <a href="{{INSTANCE}}/sys_user_list.do?sysparm_query=user_name%3D{{C_USER}}" target="_blank" rel="noopener">{{C_USER}}'s user record</a>,
             then <b>Set Password</b>, untick <b>Password needs reset</b>, and click <b>Update</b>.</p>
         </div></li>
       <li class="step" data-id="prep-browsers"><input type="checkbox" id="c-prep-browsers" aria-label="Done: browsers">
         <div class="body"><p class="label">One browser profile per person, each authorized as that person</p>
-          <p class="expect"><span class="who clin">Jane</span> Gemini Enterprise <b>mobile app</b> (or a browser) as jane.doe@example.com.
-            <span class="who it">John</span> Gemini Enterprise in a <b>desktop browser</b> as john.doe@example.com.
-            On first use each authorizes ServiceNow as <b>jane.doe</b> / <b>john.doe</b>. <b>Never authorize while that browser is signed in to ServiceNow as admin.</b></p>
+          <p class="expect"><span class="who clin">{{C_FIRST}}</span> Gemini Enterprise <b>mobile app</b> (or a browser) as {{C_EMAIL}}.
+            <span class="who it">{{I_FIRST}}</span> Gemini Enterprise in a <b>desktop browser</b> as {{I_EMAIL}}.
+            On first use each authorizes ServiceNow as <b>{{C_USER}}</b> / <b>{{I_USER}}</b>. <b>Never authorize while that browser is signed in to ServiceNow as admin.</b></p>
         </div></li>
       <li class="step" data-id="prep-photos"><input type="checkbox" id="c-prep-photos" aria-label="Done: photos">
         <div class="body"><p class="label">Photos where the phone or desktop can attach them</p>
           <p class="expect">Clinical Engineering stickers and laptop photos. In a Mac file dialog, <kbd>⌘</kbd><kbd>⇧</kbd><kbd>G</kbd> takes a pasted path.</p>
-          <div class="phrase"><code><path to your checkout>/demo/tag-pump.jpg</code><button type="button">Copy</button></div>
-          <div class="phrase"><code><path to your checkout>/demo/tag-mri.jpg</code><button type="button">Copy</button></div>
-          <div class="phrase"><code><path to your checkout>/demo/cracked.jpg</code><button type="button">Copy</button></div>
+          <div class="phrase"><code>{{REPO}}/demo/tag-pump.jpg</code><button type="button">Copy</button></div>
+          <div class="phrase"><code>{{REPO}}/demo/tag-mri.jpg</code><button type="button">Copy</button></div>
+          <div class="phrase"><code>{{REPO}}/demo/cracked.jpg</code><button type="button">Copy</button></div>
         </div></li>
       <li class="step" data-id="prep-sn"><input type="checkbox" id="c-prep-sn" aria-label="Done: service desk tab">
         <div class="body"><p class="label">Service desk tab open (admin, third browser profile)</p>
-          <p class="expect"><a href="https://<instance>.service-now.com/incident_list.do?sysparm_query=category%3Dhardware%5EORDERBYDESCsys_created_on" target="_blank" rel="noopener">Hardware tickets, newest first</a></p>
+          <p class="expect"><a href="{{INSTANCE}}/incident_list.do?sysparm_query=category%3Dhardware%5EORDERBYDESCsys_created_on" target="_blank" rel="noopener">Hardware tickets, newest first</a></p>
         </div></li>
     </ol>
     <p class="note">Start every scene in a <b>new conversation</b>. The agent first asks "Are you on the Gemini Enterprise Desktop or Mobile App?": answer <b>1</b> on the phone, <b>2</b> on desktop.</p>
@@ -252,10 +252,10 @@
 
   <!-- ============================================================= -->
   <section>
-    <div class="sec-head"><span class="who clin">Jane · phone</span><h2>1 · Jane reports the MRI in one sentence</h2><span class="time">3 min</span></div>
+    <div class="sec-head"><span class="who clin">{{C_FIRST}} · phone</span><h2>1 · {{C_FIRST}} reports the MRI in one sentence</h2><span class="time">3 min</span></div>
     <ol class="steps">
       <li class="step"><input type="checkbox" aria-label="Done">
-        <div class="body"><p class="label">New conversation. Jane types:</p>
+        <div class="body"><p class="label">New conversation. {{C_FIRST}} types:</p>
           <div class="phrase"><code>The MRI in room 104 is showing a gradient coil error and we have patients waiting</code><button type="button">Copy</button></div>
         </div></li>
       <li class="step"><input type="checkbox" aria-label="Done">
@@ -275,7 +275,7 @@
         </div></li>
       <li class="step"><input type="checkbox" aria-label="Done">
         <div class="body"><p class="label">Review, then submit: reply 1</p>
-          <p class="expect"><b>On-site repair, handled by Imaging Engineering</b>, location, department, priority 2 - High, reported by Jane.</p>
+          <p class="expect"><b>On-site repair, handled by Imaging Engineering</b>, location, department, priority 2 - High, reported by {{C_FIRST}}.</p>
           <div class="phrase"><code>1</code><button type="button">Copy</button></div>
         </div></li>
       <li class="step"><input type="checkbox" aria-label="Done">
@@ -283,17 +283,17 @@
           <p class="expect"><b>Assignment group</b> Imaging Engineering · <b>Location</b> MRI 1 (Room 104) · <b>Configuration item</b> the MRI · description with department and ownership.</p>
         </div></li>
     </ol>
-    <blockquote class="say">Jane never typed a tag, a form field or a team name. The agent found the MRI from "room 104", asked them to
+    <blockquote class="say">{{C_FIRST}} never typed a tag, a form field or a team name. The agent found the MRI from "room 104", asked them to
       check it against the sticker, and routed it to Imaging Engineering at the right room. On their phone it's plain text with
       numbered choices; on a desktop the same steps are buttons.</blockquote>
   </section>
 
   <!-- ============================================================= -->
   <section>
-    <div class="sec-head"><span class="who it">John · desktop</span><h2>2 · John reports the same MRI and joins Jane's ticket</h2><span class="time">2 min</span></div>
+    <div class="sec-head"><span class="who it">{{I_FIRST}} · desktop</span><h2>2 · {{I_FIRST}} reports the same MRI and joins {{C_FIRST}}'s ticket</h2><span class="time">2 min</span></div>
     <ol class="steps">
       <li class="step"><input type="checkbox" aria-label="Done">
-        <div class="body"><p class="label">New conversation. John types:</p>
+        <div class="body"><p class="label">New conversation. {{I_FIRST}} types:</p>
           <div class="phrase"><code>MRI 1 in radiology is down</code><button type="button">Copy</button></div>
         </div></li>
       <li class="step"><input type="checkbox" aria-label="Done">
@@ -302,16 +302,16 @@
         </div></li>
       <li class="step"><input type="checkbox" aria-label="Done">
         <div class="body"><p class="label">Click <b>Yes, that's it</b></p>
-          <p class="expect">Same MRI. <b>Belongs to: Radiology</b>, not registered to John or their department, which is fine.</p>
+          <p class="expect">Same MRI. <b>Belongs to: Radiology</b>, not registered to {{I_FIRST}} or their department, which is fine.</p>
         </div></li>
       <li class="step"><input type="checkbox" aria-label="Done">
         <div class="body"><p class="label">"This is already reported": click <b>Add my note to INC…</b></p>
-          <p class="expect">Jane's ticket, its status, who reported it and when. Then the ticket card: note added, <b>John now follows it</b>.</p>
+          <p class="expect">{{C_FIRST}}'s ticket, its status, who reported it and when. Then the ticket card: note added, <b>{{I_FIRST}} now follows it</b>.</p>
         </div></li>
       <li class="step"><input type="checkbox" aria-label="Done">
-        <div class="body"><p class="label">John types:</p>
+        <div class="body"><p class="label">{{I_FIRST}} types:</p>
           <div class="phrase"><code>show my tickets</code><button type="button">Copy</button></div>
-          <p class="expect">Jane's ticket is listed as <b>Reported by Jane Doe, you're following</b>.</p>
+          <p class="expect">{{C_FIRST}}'s ticket is listed as <b>Reported by {{C_NAME}}, you're following</b>.</p>
         </div></li>
     </ol>
     <blockquote class="say">Shared equipment gets reported by everyone who walks past it. Instead of five duplicate tickets, the second
@@ -333,22 +333,22 @@
 
   <!-- ============================================================= -->
   <section>
-    <div class="sec-head"><span class="who clin">Jane</span><span class="who it">John</span><h2>4 · "Any update?"</h2><span class="time">1 min</span></div>
+    <div class="sec-head"><span class="who clin">{{C_FIRST}}</span><span class="who it">{{I_FIRST}}</span><h2>4 · "Any update?"</h2><span class="time">1 min</span></div>
     <ol class="steps">
       <li class="step"><input type="checkbox" aria-label="Done">
-        <div class="body"><p class="label"><span class="who clin">Jane · phone</span> types:</p>
+        <div class="body"><p class="label"><span class="who clin">{{C_FIRST}} · phone</span> types:</p>
           <div class="phrase"><code>any update on the MRI?</code><button type="button">Copy</button></div>
           <p class="expect">Status <b>In Progress</b>, the assignee and the latest note.</p>
         </div></li>
       <li class="step"><input type="checkbox" aria-label="Done">
-        <div class="body"><p class="label"><span class="who it">John · desktop</span> types:</p>
+        <div class="body"><p class="label"><span class="who it">{{I_FIRST}} · desktop</span> types:</p>
           <div class="phrase"><code>what's the latest on that MRI ticket?</code><button type="button">Copy</button></div>
           <p class="expect">The same answer, because they follow it.</p>
         </div></li>
       <li class="step"><input type="checkbox" aria-label="Done">
-        <div class="body"><p class="label">Optional, <span class="who it">John</span> types:</p>
+        <div class="body"><p class="label">Optional, <span class="who it">{{I_FIRST}}</span> types:</p>
           <div class="phrase"><code>cancel it, it's working</code><button type="button">Copy</button></div>
-          <p class="expect">Only Jane, who reported it, can cancel; the agent offers to add John's note instead.</p>
+          <p class="expect">Only {{C_FIRST}}, who reported it, can cancel; the agent offers to add {{I_FIRST}}'s note instead.</p>
         </div></li>
     </ol>
     <blockquote class="say">Nobody opened ServiceNow or looked up a ticket number. They asked, and the agent read the ticket live.
@@ -358,7 +358,7 @@
 
   <!-- ============================================================= -->
   <section>
-    <div class="sec-head"><span class="who clin">Jane · phone</span><h2>5 · Jane finds a broken pump in the ED</h2><span class="time">2 min</span></div>
+    <div class="sec-head"><span class="who clin">{{C_FIRST}} · phone</span><h2>5 · {{C_FIRST}} finds a broken pump in the ED</h2><span class="time">2 min</span></div>
     <ol class="steps">
       <li class="step"><input type="checkbox" aria-label="Done">
         <div class="body"><p class="label">New conversation. Attach <b>tag-pump.jpg</b> and type:</p>
@@ -368,7 +368,7 @@
         <div class="body"><p class="label">Mobile or desktop? Reply:</p>
           <div class="phrase"><code>1</code><button type="button">Copy</button></div>
           <p class="expect">The photo's control number <b>CE-20457</b> matches exactly, so there's no "is this right?" step.
-            <b>Belongs to: Emergency Department</b>, not registered to Jane or their department; they can still report it and the ticket will say so.</p>
+            <b>Belongs to: Emergency Department</b>, not registered to {{C_FIRST}} or their department; they can still report it and the ticket will say so.</p>
         </div></li>
       <li class="step"><input type="checkbox" aria-label="Done">
         <div class="body"><p class="label">Review, then submit: reply 1</p>
@@ -379,7 +379,7 @@
       <li class="step"><input type="checkbox" aria-label="Done">
         <div class="body"><p class="label">Show the ticket in the service desk tab</p>
           <p class="expect">Assignment group <b>Clinical Engineering</b>, priority 1, and the comment
-            <i>Ownership could not be confirmed: registered to Emergency Department, reported by Jane Doe…</i></p>
+            <i>Ownership could not be confirmed: registered to Emergency Department, reported by {{C_NAME}}…</i></p>
         </div></li>
     </ol>
     <blockquote class="say">Anyone can report anything. When the reporter isn't the owner, the ticket says so instead of blocking them,
@@ -388,16 +388,16 @@
 
   <!-- ============================================================= -->
   <section>
-    <div class="sec-head"><span class="who it">John · desktop</span><h2>6 · Optional: John's laptop and a workstation their team supports</h2><span class="time">2 min</span></div>
+    <div class="sec-head"><span class="who it">{{I_FIRST}} · desktop</span><h2>6 · Optional: {{I_FIRST}}'s laptop and a workstation their team supports</h2><span class="time">2 min</span></div>
     <ol class="steps">
       <li class="step"><input type="checkbox" aria-label="Done">
-        <div class="body"><p class="label">New conversation (answer 2). John types:</p>
+        <div class="body"><p class="label">New conversation (answer 2). {{I_FIRST}} types:</p>
           <div class="phrase"><code>my laptop screen is cracked</code><button type="button">Copy</button></div>
           <p class="expect">His devices with <b>model, tag and serial</b>. Pick the laptop, confirm it, attach <b>cracked.jpg</b>.
             Review shows <b>Ship to</b> and <b>Bill to</b>: a personal device is replaced, not repaired on site. Submit.</p>
         </div></li>
       <li class="step"><input type="checkbox" aria-label="Done">
-        <div class="body"><p class="label">John types:</p>
+        <div class="body"><p class="label">{{I_FIRST}} types:</p>
           <div class="phrase"><code>the reading room 2 workstation in radiology won't boot</code><button type="button">Copy</button></div>
           <p class="expect">The confirmation says <b>supported by your group (Service Desk)</b>: department equipment their team looks after.</p>
         </div></li>

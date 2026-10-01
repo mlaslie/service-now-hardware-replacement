@@ -39,8 +39,8 @@ Validated when the agent starts. A misspelled key or a bad value stops start-up 
 naming the field. Two examples ship: `config/organization.yaml` (a hospital: today's demo) and
 `config/examples/office.yaml` (a generic office).
 
-> After changing the `agent` block (name, description, examples), **delete and re-add the agent in
-> Gemini Enterprise**: it keeps the agent card from registration. Everything else takes effect on
+> After changing the `agent` block (name, description, examples), deploy, then **edit the agent in Gemini
+> Enterprise, paste the updated agent card and save** (no need to delete and re-add it). Everything else takes effect on
 > the next deploy.
 
 ### `organization`

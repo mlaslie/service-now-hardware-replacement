@@ -9,8 +9,8 @@
 
 organization: Riverside Medical Center
 
-# How the agent appears in Gemini Enterprise (the agent card). Gemini Enterprise keeps the card
-# from registration: after changing this block, delete and re-add the agent.
+# How the agent appears in Gemini Enterprise (the agent card). After changing this block, deploy, then edit
+# the agent in Gemini Enterprise, paste the updated agent card and save.
 agent:
   name: Hardware Replacement
   # The opening of the agent's instructions: who it helps, what it covers, how it talks.

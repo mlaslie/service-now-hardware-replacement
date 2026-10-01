@@ -3,3 +3,5 @@ __pycache__/
 .pytest_cache/
 .env
 seed/state/
+seed/users.json
+demo/DEMO.local.html

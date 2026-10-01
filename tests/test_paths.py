@@ -15,7 +15,7 @@ from app.vision import PhotoFindings
 
 import re
 
-JANE, JOHN, ANA = "u_joe", "u_matt", "u_ana"
+JANE, JOHN, ANA = "u_jane", "u_john", "u_ana"
 RADIOLOGY, IT, ED = "d_rad", "d_it", "d_ed"
 IMAGING, CLINICAL_ENG, SERVICE_DESK = "g_img", "g_ce", "g_sd"
 HOSPITAL = "Riverside Medical Center"
@@ -674,7 +674,7 @@ async def test_equipment_tag_photo_needs_no_confirmation(sn, monkeypatch):
 # --- delivery addresses ----------------------------------------------------------------
 
 HOME = "742 Evergreen Terrace, Kansas City, MO 64110"
-JOE_EMAIL = "jane.doe@example.com"
+JANE_EMAIL = "jane.doe@example.com"
 
 
 async def _to_review(ctx):
@@ -683,7 +683,7 @@ async def _to_review(ctx):
 
 
 async def test_saved_address_is_offered_but_not_applied(sn):
-    sn.saved[JOE_EMAIL] = [{"label": "Home", "address": HOME}]
+    sn.saved[JANE_EMAIL] = [{"label": "Home", "address": HOME}]
     ctx = ctx_for()
     result = await _to_review(ctx)
     assert result["ship_to"] == "1200 Harbor Health Way"  # the address on file
@@ -693,7 +693,7 @@ async def test_saved_address_is_offered_but_not_applied(sn):
 
 
 async def test_clicking_the_saved_address_uses_the_full_address(sn):
-    sn.saved[JOE_EMAIL] = [{"label": "Home", "address": HOME}]
+    sn.saved[JANE_EMAIL] = [{"label": "Home", "address": HOME}]
     ctx = ctx_for()
     await _to_review(ctx)
     result = await tools.choose_ship_to(HOME, ctx)
@@ -704,7 +704,7 @@ async def test_clicking_the_saved_address_uses_the_full_address(sn):
 
 
 async def test_ship_to_my_house_resolves_to_the_saved_address(sn):
-    sn.saved[JOE_EMAIL] = [{"label": "Home", "address": HOME}]
+    sn.saved[JANE_EMAIL] = [{"label": "Home", "address": HOME}]
     ctx = ctx_for()
     await _to_review(ctx)
     result = await tools.update_request(ctx, delivery_location="my house")
@@ -734,7 +734,7 @@ async def test_new_home_address_is_saved_verbatim(sn):
     await _to_review(ctx)
     await tools.update_request(ctx, delivery_location=HOME, delivery_label="Home", delivery_kind="permanent")
     await tools.submit_ticket(ctx)
-    assert sn.saved_calls == [(JOE_EMAIL, "Home", HOME)]
+    assert sn.saved_calls == [(JANE_EMAIL, "Home", HOME)]
 
 
 async def test_back_to_the_address_on_file(sn):
@@ -746,7 +746,7 @@ async def test_back_to_the_address_on_file(sn):
 
 
 async def test_changing_a_filed_tickets_ship_to_needs_a_real_address(sn):
-    sn.saved[JOE_EMAIL] = [{"label": "Home", "address": HOME}]
+    sn.saved[JANE_EMAIL] = [{"label": "Home", "address": HOME}]
     ctx = ctx_for()
     filed = await _file(ctx)
     result = await tools.update_ticket(filed["ticket"], ctx, ship_to="the hotel")

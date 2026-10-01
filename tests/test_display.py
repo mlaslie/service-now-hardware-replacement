@@ -52,7 +52,7 @@ def test_switching_modes():
 
 
 def test_card_as_text_numbers_the_buttons_in_order():
-    employee = {"name": "Jane Doe", "email": "jane@x", "location": "Kansas City"}
+    employee = {"name": "Jane Doe", "email": "jane.doe@example.com", "location": "Kansas City"}
     assets = [{"asset_tag": "123456", "model": "MacBook Air 13", "device_type": "laptop"},
               {"asset_tag": "200001", "model": "Dell P2723DE", "device_type": "monitor"}]
     messages = cards.prepend_text(cards.device_picker(employee, assets), "Let's get that sorted.")
@@ -70,7 +70,7 @@ def test_every_card_renders_as_text():
              "issue": {"category": "cracked_screen", "description": "Cracked", "urgency": "high"},
              "priority": "2 - High", "recommendation": "Warranty replacement", "sla": "Next business day",
              "warnings": [], "assigned_priority": "2 - High", "priority_note": ""}
-    employee = {"name": "Jane Doe", "email": "jane@x", "location": "KC", "location_address": "6304 NW Barry Rd",
+    employee = {"name": "Jane Doe", "email": "jane.doe@example.com", "location": "KC", "location_address": "6304 NW Barry Rd",
                 "cost_center": "Sales", "department": "Sales"}
     for msgs in (cards.issue_picker(draft["device"]), cards.label_photo_request(),
                  cards.photo_request(draft["device"], "Cracked screen", "the screen", True),
@@ -82,7 +82,7 @@ def test_every_card_renders_as_text():
 def test_text_has_real_paragraph_breaks():
     """GE renders markdown: a single newline is ignored, so a lone one would run
     lines together. Only list items may be joined by one."""
-    employee = {"name": "Jane Doe", "email": "jane@x", "location": "KC", "location_address": "6304 NW Barry Rd",
+    employee = {"name": "Jane Doe", "email": "jane.doe@example.com", "location": "KC", "location_address": "6304 NW Barry Rd",
                 "cost_center": "Sales", "department": "Sales"}
     draft = {"device": {"asset_tag": "123456", "model": "iPhone 15"}, "issue": {"category": "cracked_screen"}}
     text, _ = cards.to_text(cards.review(draft, employee))

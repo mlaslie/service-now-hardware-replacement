@@ -13,10 +13,10 @@ def test_bearer_ignores_service_jwts():
 async def test_user_comes_from_servicenow(monkeypatch):
     async def fake_current_user(token):
         assert token == "tok"
-        return {"sys_id": "u1", "email": "john@example.com", "name": "John Doe", "user_name": "OWNER"}
+        return {"sys_id": "u1", "email": "john.doe@example.com", "name": "John Doe", "user_name": "john.doe"}
     monkeypatch.setattr(servicenow, "current_user", fake_current_user)
     user = await identity.resolve_end_user("tok")
-    assert user.verified and user.email == "john@example.com" and user.name == "John Doe" and user.sys_id == "u1"
+    assert user.verified and user.email == "john.doe@example.com" and user.name == "John Doe" and user.sys_id == "u1"
 
 
 @pytest.mark.parametrize("exc,problem", [(servicenow.NotSignedIn(), "token_rejected"),

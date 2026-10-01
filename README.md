@@ -1,10 +1,118 @@
 # ServiceNow Hardware Replacement agent
 
-An ADK agent on Cloud Run, served to a Gemini Enterprise app over A2A, that lets hospital staff
-report broken hardware in a sentence or a photo and follow up on it, filed in ServiceNow **as that
-person**. It covers personal devices (replaced and shipped) and shared or clinical equipment such as
-MRI and CT scanners, infusion pumps, patient monitors and beds (repaired on site by the team that
-supports them). Cards are A2UI v0.9 in the web app (v0.8 for a client that still negotiates it); the mobile app gets the same steps as numbered text.
+## The Agent
+
+The included agent is built on Google's Agent Development Kit (ADK) and is focused on minimizing the effort
+required to report an enterprise hardware issue and have that issue show up as an incident in ServiceNow.
+
+Included along with the agent code are configuration directions for integrating the agent with ServiceNow,
+deploying it to Google Cloud (the agent runs on **Cloud Run**; Agent Runtime only stores conversations and
+memory) and making it available to users in the Gemini Enterprise app.
+
+The included scripts and demo script are built around a fictitious hospital system with a mix of IT-managed
+devices (laptops, monitors, phones, printers) and medical equipment (MRI, CT, X-ray, infusion pumps, patient
+monitors, hospital beds), but the agent is easily adapted to any enterprise vertical: names, colours, problem
+choices and ServiceNow field mappings live in one configuration file (`config/organization.yaml`), not in code.
+
+The agent uses A2UI (v0.9) cards with buttons when users talk to it in the Gemini Enterprise web app, and simple
+number-based menus in the Gemini Enterprise mobile app (which can't display A2UI). The first message of each
+conversation asks which one the user is on.
+
+## Typical Agent Flow
+
+Again, the goal is to minimize the effort for a user to open, update and check on their hardware incidents
+without having to log in and maneuver through multiple ServiceNow screens (a major barrier for many
+non-ServiceNow users).
+
+A typical flow: the user selects the agent in the Gemini Enterprise app and starts a conversation, such as
+"My laptop screen is broken and I have a presentation in just 2 days!".
+
+From here the agent looks up the hardware assigned to the (signed-in) user in ServiceNow. If it's clear which
+device is meant, it picks it; otherwise it shows the list to choose from. Either way the user confirms the
+device (model, asset tag, serial number) with a quick Yes/No. Shared equipment that isn't assigned to anyone,
+like an MRI or an infusion pump, can be described in words ("the MRI in room 104"), typed by asset tag or
+serial number, or identified from a photo of its sticker.
+
+If the problem calls for it (for example physical damage), the agent asks for a photo, evaluates it, and
+drafts the incident: device, problem, urgency (raised automatically for things like "presentation in 2
+days" or a safety concern), ship-to and bill-to, all filled in from ServiceNow.
+
+The user reviews the information and the agent creates the incident. Shared and medical equipment goes to
+the team that supports it (for example Clinical Engineering) with its location; if someone already reported
+the same equipment, the user can add their note to that incident and follow it instead of opening a duplicate.
+
+After the incident is opened, the user can add a note, get the latest status (status, who it's assigned to,
+notes), change the urgency or shipping address, reopen it, or cancel it with a reason. If ServiceNow doesn't
+allow a change for that user, the agent says so plainly and adds a note asking the service desk to make it.
+
+Note: The agent signs in to ServiceNow as the user (no shared service account), and users can only see and
+work with hardware incidents they reported or follow.
+
+## Other Items
+
+### Custom ServiceNow Role
+
+The agent acts with the user's own ServiceNow permissions. The out-of-box `itil` role covers everything the
+agent does, but it's a fulfiller role and usually licensed per user. As an alternative, the included
+`u_hardware_requester` role allows exactly what the agent needs, on hardware incidents only: full details,
+urgency, reopen and cancel on the user's own incidents, notes and following on open ones, plus reading device
+records. Measured on a developer instance, it passes every check `itil` does. Creating it takes a ServiceNow
+admin elevated to `security_admin` running one background script. See [docs/ROLES.md](docs/ROLES.md), and
+confirm licensing with your ServiceNow account team.
+
+### Seeding Demo Data
+
+`seed/sn_seed.py` sets up a ServiceNow instance for the demo: two users with a standard office kit
+(laptop, monitor, dock, phones, printer, headset), and the fictitious hospital's departments, room locations,
+support groups and eight pieces of medical and shared equipment. It also prints a PDF asset register to hand
+out, clears just the demo tickets between runs (`clear-tickets`), and undoes everything it created (`reset`).
+It signs in to ServiceNow as an admin through the browser. See the
+[demo data section](#demo-data-seed-report-and-reset-seedsn_seedpy) below.
+
+### Demo Script
+
+`demo/DEMO.html` is a 12-minute run sheet for two users: a clinician, Jane Doe (MRI Technologist,
+Radiology), on the mobile app and an IT analyst, John Doe (IT), on the desktop. Jane reports the MRI in one
+sentence, John reports the same MRI and joins Jane's incident, the service desk updates it, both ask "any
+update?", and Jane reports a broken infusion pump from a photo as a safety concern. Every phrase to type has
+a copy button and every step a checkbox.
+
+The demo users are configurable. They are the two users in the seed users file marked `"demo_role":
+"clinician"` and `"demo_role": "it"`: `seed/users.example.json` ships with Jane and John Doe. To use your
+own people, copy it to `seed/users.json` (not committed), change the names, emails and user names, seed
+them, and build your own run sheet with your instance and file paths filled in:
+
+```bash
+cp seed/users.example.json seed/users.json      # edit names, emails, user names
+uv run --group seed python seed/sn_seed.py set seed/users.json
+uv run python demo/build_demo.py                # writes demo/DEMO.local.html (not committed)
+```
+
+### Obtaining a ServiceNow Developer Instance
+
+A free ServiceNow Personal Developer Instance (PDI) works well for trying the agent. Sign up at
+[developer.servicenow.com](https://developer.servicenow.com/) and request an instance; you get an
+`https://devNNNNNN.service-now.com` URL and an admin login. Developer instances go to sleep when idle (the
+agent then reports "ServiceNow is waking up"; open the instance in a browser and try again) and are reclaimed
+if unused for a while, so log in regularly.
+
+Note: developer instances are much slower than a production ServiceNow implementation. Agent performance
+when using a free developer instance (lookups, ticket creation, status checks) is not indicative of a real
+world production environment.
+
+### Anything Else that is Important
+
+- **Who it acts as:** users sign in to ServiceNow once through Gemini Enterprise. Make sure they don't
+  authorize while their browser is signed in to ServiceNow as an admin, or the agent will act as the admin.
+- **A2A agent card changes:** when the agent card is updated on the agent, you don't need to delete the agent
+  in Gemini Enterprise. Edit the agent, paste in the updated agent card content and save it, and Gemini
+  Enterprise updates accordingly.
+- **Photos:** photos are stored in a Cloud Storage bucket and copied onto the incident. In a hospital, remind
+  staff not to photograph patients or screens with patient information.
+- **Status:** a working demo and reference implementation, not a hardened product. See
+  [docs/BACKLOG.md](docs/BACKLOG.md) for what's next, including a Service Catalog option.
+- **Tests:** unit tests plus model-routing checks that run the real model against a fake ServiceNow (see
+  [Tests](#tests) below).
 
 ## Documentation
 
@@ -161,7 +269,7 @@ Check any user with `uv run python scripts/sn_doctor.py --as <user>`: [docs/ROLE
 ## Known limits
 
 - The agent card declares A2UI v0.9 and v0.8; Gemini Enterprise picks v0.9 (sends `theme.primaryColor`).
-  After changing the declared versions, delete and re-add the agent: GE keeps the card from registration.
+  After changing the agent card, edit the agent in Gemini Enterprise, paste the updated card and save.
 - The Gemini Enterprise mobile app renders no A2UI, so the first reply asks desktop or mobile.
 - ServiceNow developer instances hibernate; the agent reports "ServiceNow is waking up".
 
@@ -177,7 +285,7 @@ afterwards. The demo script is `demo/DEMO.html`.
    redirect URL `http://localhost:8765/callback`, scope `useraccount`.
 2. Store the client in Secret Manager (or set `SN_INSTANCE_URL`, `SN_CLIENT_ID`, `SN_CLIENT_SECRET`):
    ```bash
-   printf '%s' 'https://INSTANCE.service-now.com|CLIENT_ID|CLIENT_SECRET' | gcloud secrets create servicenow-seed-oauth --data-file=- --project PROJECT_ID
+   printf '%s' 'https://<instance>.service-now.com|CLIENT_ID|CLIENT_SECRET' | gcloud secrets create servicenow-seed-oauth --data-file=- --project PROJECT_ID
    ```
 3. `uv run --group seed python seed/sn_seed.py login` opens the browser; sign in as **admin**.
    The token and refresh token are cached in `~/.config/hw-seed/token.json` (0600).

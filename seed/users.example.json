@@ -9,6 +9,7 @@
     "department": "IT",
     "cost_center": "IT",
     "manager": "abel.tuter",
+    "demo_role": "it",
     "location": {
       "name": "Riverside Medical Center",
       "street": "1200 Harbor Health Way",
@@ -35,6 +36,7 @@
     "phone": "(816) 555-0187",
     "department": "Radiology",
     "cost_center": "Radiology",
+    "demo_role": "clinician",
     "location": {
       "name": "Riverside Medical Center",
       "street": "1200 Harbor Health Way",

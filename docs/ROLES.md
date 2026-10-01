@@ -21,7 +21,7 @@ Measured with `scripts/sn_doctor.py --matrix`, which creates temporary users wit
 impersonates them, performs every call the agent makes and reads back what ServiceNow stored.
 Your instance's ACLs may differ: run it yourself (below).
 
-<!-- The table below is docs/role-matrix.md, generated on INSTANCE on 2026-09-30. -->
+<!-- The table below is docs/role-matrix.md, generated on a ServiceNow developer instance on 2026-09-30. -->
 | What the agent does | Used for | no roles (typical employee) | itil | itil + sn_incident_write | itil + sn_incident_write + asset |
 |---|---|---|---|---|---|
 | Who am I | knowing who is asking (every turn) | yes | yes | yes | yes |

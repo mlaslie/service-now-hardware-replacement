@@ -4,10 +4,11 @@ Created 2026-09-26. The agent works end to end; this is the next round of work.
 Priority: **P0** = bug or blocks the next manual test, **P1** = next up, **P2** = later.
 Size: S (< half a day), M (about a day), L (several days).
 
-Suggested order now: **G (adoption kit)** → F-next (hospital equipment follow-ups) → A2 evals → D ideas.
-Section C is folded into G2. Done: A0, A1, A3, B, E (mobile text mode), F (hospital equipment),
-A2UI v0.9 with green primary buttons, verbatim delivery addresses.
-
+Status 2026-10-01. **Done:** A0, A1, A2 (evals), A3, B, E (mobile text mode), F (hospital equipment), G1.1,
+G1.3, G2.1-G2.3, G2.6-G2.8, G3.1, G3.5, most of G3.7, A2UI v0.9 + green buttons, verbatim saved addresses,
+custom role `u_hardware_requester` (created and measured: passes everything `itil` does).
+**Next:** G3.3 (wording in `messages.yaml`), G1.2 (split `tools.py`), G3.12 (customization recipes), F1 (live
+pass), rest of G3.7 (ticket table / catalog item), then D ideas. Section C is folded into G2.
 ---
 
 ## G. Adoption kit: easy to understand, install and customize

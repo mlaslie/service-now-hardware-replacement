@@ -2,7 +2,7 @@
 
 Background for anyone (or any Claude session) picking this project up. It records what was
 built, where everything lives, what went wrong and how it was fixed, and what's still open.
-Last updated 2026-09-26.
+Last updated 2026-10-01. Latest commit on `main`: see `git log`; live revision `00029`.
 
 **No secret values are in this file.** Secrets are named with where they live.
 
@@ -15,11 +15,26 @@ few taps. It runs on **Cloud Run**, is served to a **Gemini Enterprise** app ove
 **A2UI v0.9** cards (buttons; v0.8 when a client negotiates it), reads photos with **gemini-3.8-flash**, and files and manages
 **ServiceNow incidents as the signed-in employee**, using their own ServiceNow OAuth token.
 
-Status: working end to end in Gemini Enterprise for `john.doe`. Since revision 00022 (now 00023) it also
-covers hospital shared and clinical equipment (MRI, pumps, beds...) for the demo hospital "Riverside
-Medical Center": see `docs/BACKLOG.md` section F and `demo/DEMO.html`. Create, list, status, notes,
-note, ship-to change, urgency, reopen and cancel are all tested by hand. The GE mobile app works
-in text mode (first reply asks mobile vs desktop).
+Status (2026-10-01): working end to end in Gemini Enterprise (web: A2UI v0.9 cards with green primary
+buttons; mobile: numbered text after a "Desktop or Mobile App?" question) for `john.doe` (itil) and
+`jane.doe` (custom role `u_hardware_requester`, no itil). Covers personal devices and the demo hospital
+"Riverside Medical Center"'s shared/clinical equipment. Behaviour per organization is in
+`config/organization.yaml`; settings in `.env`. Docs: README (overview), `docs/INSTALL.md`,
+`CONFIGURATION.md`, `ROLES.md`, `ARCHITECTURE.md`, `docs/site/index.html`. Tests: 184 unit/path tests +
+12 model-routing evals (`evals/run.py`).
+
+### History (milestones)
+| Date | Milestone |
+|---|---|
+| 09-25 | First version: Cloud Run A2A agent, A2UI v0.8 wizard, photo reading, Firestore mock tickets |
+| 09-25/26 | ServiceNow per-user OAuth (Table API as the user); Agent Runtime used only for Sessions + Memory Bank; read-back "attempt, verify, note" rule; compact ticket views |
+| 09-26 | Seed tool (users, kit, PDF, reset); handoff/backlog; mobile text mode (desktop/mobile question, numbered replies) |
+| 09-26 | Intake bugs fixed + 31 path tests; fuzzy matching against own devices |
+| 09-26 | Hospital equipment: device kinds, confirm step, find by description, ownership check, routing, followers, safety concern; seed equipment; `demo/DEMO.html` run sheet |
+| 09-30 | A2UI v0.9 (v0.8 fallback), green primary buttons (theme.primaryColor); throwaway `a2ui-v09-probe` showed mobile can't be detected and renders no A2UI |
+| 09-30 | Verbatim saved delivery addresses (no hotels; never applied on "looks good") |
+| 09-30 | Adoption kit: `.env` settings, organization profile, setup.sh, docs + HTML site, `sn_doctor` role matrix |
+| 10-01 | Ticket field mapping + `sn_profile.py`; model-routing evals (found and fixed a dropped-problem bug); custom role `u_hardware_requester` created and measured; Jane moved to it; registration screenshots; README overview rewritten |
 
 ---
 
@@ -70,9 +85,9 @@ in text mode (first reply asks mobile vs desktop).
 | Item | Value |
 |---|---|
 | App | `2H-2026` = `projects/PROJECT_NUMBER/locations/global/collections/default_collection/engines/GE_APP_ID` |
-| Agent | "Hardware Replacement", registered as **A2A** from the card at `<service URL>/.well-known/agent-card.json`. Current registration ID `15007067269672713406`; it changes every time the user deletes and re-adds it. |
-| Authorization | ServiceNow OAuth (authorization code), resource `hardware-replacement_1790341756507` (also changes on re-add). Built from the **ServiceNow connector's own OAuth client** (redirects include `https://vertexaisearch.cloud.google.com/oauth-redirect`). Scope `useraccount`; auth URL `https://INSTANCE.service-now.com/oauth_auth.do?response_type=code&client_id=<ID>&redirect_uri=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Foauth-redirect&scope=useraccount`; token URL `https://INSTANCE.service-now.com/oauth_token.do`. |
-| Other | The ServiceNow connector `service-now-INSTANCE_1789764864639` (federated + actions). Old Cloud Run probe agent `a2a_probe` still registered. |
+| Agent | "Hardware Replacement", registered as **A2A** from the card at `<service URL>/.well-known/agent-card.json`. Re-added on 2026-09-30 for A2UI v0.9 (old ID `15007067269672713406` is gone); IDs change on every re-add, so look them up (below). |
+| Authorization | ServiceNow OAuth (authorization code), a new resource since the re-add (old `hardware-replacement_1790341756507`). Built from the **ServiceNow connector's own OAuth client** (redirects include `https://vertexaisearch.cloud.google.com/oauth-redirect`). Scope `useraccount`; auth URL `https://INSTANCE.service-now.com/oauth_auth.do?response_type=code&client_id=<ID>&redirect_uri=https%3A%2F%2Fvertexaisearch.cloud.google.com%2Foauth-redirect&scope=useraccount`; token URL `https://INSTANCE.service-now.com/oauth_token.do`. |
+| Other | The ServiceNow connector `service-now-INSTANCE_1789764864639` (federated + actions). Old Cloud Run probe agent `a2a_probe` may still be registered. **"A2UI v0.9 Probe"** (Cloud Run `a2ui-v09-probe`, code `~/ADK/a2ui-v09-probe`, no auth): kept on purpose for re-testing mobile/colour; the user may have it registered. |
 | Look up current IDs | `GET https://discoveryengine.googleapis.com/v1alpha/projects/PROJECT_NUMBER/locations/global/collections/default_collection/engines/GE_APP_ID/assistants/default_assistant/agents` (header `x-goog-user-project: PROJECT_ID`) |
 
 Each authorization resource can be attached to **one** agent only. In the UI, changing an
@@ -85,6 +100,7 @@ agent's authorization means deleting and re-adding the agent.
 | `john.doe` | Test user "John Doe" (`john.doe@example.com`), IT Systems Analyst, department **IT**, member of the **Service Desk** group, location Riverside Medical Center. Roles `itil`, `asset`, `sn_incident_write`, `snc_platform_rest_api_access`, `rest_service`. MacBook Air 13" asset tag `123456`, serial `FCPJ2GJTHC`. |
 | `OWNER` | Created with **Identity type = AI** and **Internal Integration User** checked: **cannot log in interactively**. Don't use it. |
 | `inventory_admin` | Demo user; unused |
+| `u_hardware_requester` (role) | Custom role with 13 ACLs (created 2026-10-01 by the background script `scripts/servicenow/create_hardware_requester_role.js`, elevated admin). Rules are found via `sys_security_acl_role` links (ServiceNow rewrites ACL descriptions). `scripts/sn_custom_role.py status|grant|revoke`. |
 | `jane.doe` | Test user "Jane Doe" (`jane.doe@example.com`), MRI Technologist, department **Radiology**, created by the seed script; needs **Set Password** manually. Role **`u_hardware_requester` only** (no `itil`), since 2026-10-01: proves the agent works without `itil`. |
 
 | OAuth client (Application Registry) | Use |
@@ -147,6 +163,11 @@ Key design rules:
 ---
 
 ## 4. How to
+
+**This environment's demo users** (Jane Doe, John Doe) live in the local, uncommitted `seed/users.json`
+(`"demo_role": "clinician"` / `"it"`); the committed `seed/users.example.json` and `demo/DEMO.html` use generic
+Jane Doe / John Doe. Seed with `sn_seed.py set seed/users.json`; build the personal run sheet with
+`uv run python demo/build_demo.py` (writes the uncommitted `demo/DEMO.local.html`).
 
 Settings now live in `.env` (from `.env.example`; ours is filled in locally, not committed) and the
 organization profile in `config/organization.yaml`. Install and operations docs: `docs/INSTALL.md`,
@@ -218,13 +239,27 @@ uv run --group seed pytest                      # everything: 48 tests
 - **A2UI version** (since revision 00024): cards are v0.9; the card declares v0.9 + v0.8 and the agent renders
   whichever the request asks for (`inbound.requested_a2ui_version` → `cards.to_v08`). A v0.9 click is
   `{"action": {...}}` plus a "User action triggered." text part, which `inbound.rewrite_parts` drops.
-  GE stores the card at registration: re-add the agent to switch a registration to v0.9.
+  To update the card in GE, edit the agent, paste the updated card and save (no re-add needed; user-confirmed 2026-10-01).
 - **GE + A2UI v0.8 (history):** `beginRendering` first, fresh `surfaceId` per card, no markdown, no empty
   Text, basic catalog only. `primaryColor`/`font`/`primary` are **ignored** by GE, so button colours can't be changed.
 - **GE photos** arrive inline (base64) with sentinel text parts, sometimes with duplicated text.
   Stage them before the runner (the session event cap is 10MB) and raise the A2A body limit to 32MB.
 - **User-facing honesty rule:** changed vs requested-and-noted must always be explicit.
 - **Test data hygiene:** tests run as the real user's email pollute Memory Bank; use test emails.
+- **Configuration over code:** organization behaviour lives in `config/organization.yaml` (validated at
+  start-up); settings in `.env`. Change the profile, run `uv run python -m app.profile`, deploy.
+- **ServiceNow ACLs can't be created through the API** (needs an elevated `security_admin` session): ship them as a
+  background script the admin runs; never work around the gate.
+- **ServiceNow rewrites new ACL descriptions** ("Allow write for ..."): never use the description as a marker.
+- **`itil` is a licensed fulfiller role.** `u_hardware_requester` does everything the agent needs (measured).
+- **Admin impersonation works over REST** with a cookie session (`POST /api/now/ui/impersonate/<sys_id>` with the
+  admin token, then cookies only): `sn_doctor.py` measures real permissions without passwords.
+- **Evals catch what unit tests can't:** the model sometimes ended the turn at the confirm card and dropped the
+  problem; only repeated real-model runs showed it. Run `evals/run.py --repeat 2` after prompt/profile changes.
+- **Docs links:** check every URL (status + title) before publishing; cloud.google.com docs now redirect to
+  docs.cloud.google.com, and some old paths land on generic pages.
+- **Check the test result before committing:** a `pytest ... | tail` pipeline hides the exit code; one push went out
+  with a failing test (fixed in the next commit).
 - **Permission classifier:** deleting secrets or DBs, IAM grants and new deploys need the user to
   name the specific resource or action.
 
@@ -232,22 +267,17 @@ uv run --group seed pytest                      # everything: 48 tests
 
 ## 7. Open items / next steps
 
-The prioritized backlog is in `docs/BACKLOG.md`.
+The prioritized backlog is `docs/BACKLOG.md` (section G = adoption kit, F = hospital follow-ups, D = ideas).
 
-1. Seed changes are committed. Run:
-   `reset --user dana.whitfield --yes` → `set seed/users.example.json` → `report`.
-   Set Jane's password in ServiceNow.
-2. **Cleanup** (needs explicit user naming): the `servicenow-integration` and `servicenow-oauth`
-   secrets, the `hardware-tickets` Firestore DB, the ServiceNow clients "Hardware Replacement
-   Agent" and "…Agent 2", and the `a2a_probe` GE registration + its Cloud Run service if unused.
-   The local probe folder `~/ADK/a2a-runtime-probe` is also unused.
-3. **Production hardening:** a Service Catalog item for replacements; a scripted REST "my devices"
-   endpoint; SSO between Google and ServiceNow (removes the wrong-account risk); optionally a
-   guard warning when the ServiceNow user looks like a system account.
-4. Branding: done. In v0.9, GE applies `theme.primaryColor` (Baptist green #22873B) to basic-catalog Buttons with
-   `variant: "primary"`; the default variant stays grey. Forward buttons are primary (green), ways back or out grey.
-   GE's own `MaterialButton` ignores the theme (its palette: blue / teal / red). Measured 2026-09-30.
-5. Evals: none yet; `agents-cli` eval could cover the wizard shortcuts and the honesty rule.
+1. **Uncommitted:** the README overview rewrite (2026-10-01) is waiting for the user's review; commit and push when approved.
+2. **Manual testing in Gemini Enterprise** by the user (web + mobile, Jane and John), using `demo/DEMO.html`.
+3. **Next to build** (agreed order): G3.3 wording in `messages.yaml` (opens languages), G1.2 split `app/tools.py`
+   (1,300 lines), G3.12 customization recipes; F1 live pass; ticket table/catalog item option (rest of G3.7).
+4. **Cleanup** (needs explicit user naming): secrets `servicenow-integration`, `servicenow-oauth`; Firestore DB
+   `hardware-tickets`; ServiceNow clients "Hardware Replacement Agent" and "…Agent 2"; GE `a2a_probe` and
+   `~/ADK/a2a-runtime-probe`. Keep `a2ui-v09-probe` (user's request).
+5. **Production hardening:** decide `u_hardware_requester` vs a scripted REST API / Service Catalog item with the
+   customer's ServiceNow team (licensing); SSO between Google and ServiceNow; admin-account guard (D11).
 
 ---
 

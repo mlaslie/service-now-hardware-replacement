@@ -126,8 +126,7 @@ Click **Finish** (not *Skip & Finish*: without the authorization the agent can't
 Google's guides: [Register and manage A2A agents](https://docs.cloud.google.com/gemini/enterprise/docs/register-and-manage-an-a2a-agent),
 [agents using A2UI](https://docs.cloud.google.com/gemini/enterprise/docs/a2ui-agents/register-and-manage-an-a2ui-agent).
 
-Good to know: one authorization belongs to one agent; to change an agent's card or authorization,
-delete and re-add the agent; users authorize on first use and should do so **not** signed in to
+Good to know: one authorization belongs to one agent; to update the agent card, edit the agent in Gemini Enterprise, paste the updated agent card and save; there's no need to delete and re-add the agent; users authorize on first use and should do so **not** signed in to
 ServiceNow as an admin in the same browser (the agent would act as the admin).
 
 ## 8. Try it
