@@ -208,6 +208,7 @@ def _ticket_description(draft: dict, employee: dict) -> str:
     lines = [
         f"Problem: {ISSUE_LABELS.get(issue['category'])}",
         f"Details: {issue.get('description', '')}",
+        *([f"Already tried: {'; '.join(draft['self_help_tried'])}"] if draft.get("self_help_tried") else []),
         "",
         f"Device: {cards.maker_model(device)}",
         f"Asset tag: {device.get('asset_tag') or 'unknown'}   Serial: {device.get('serial_number') or 'unknown'}",

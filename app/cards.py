@@ -249,6 +249,25 @@ def issue_picker(device: dict, suggestion: str = "") -> list[dict]:
     return c.build(kids)
 
 
+def self_help(device: dict, issue_label: str, steps: list[str]) -> list[dict]:
+    """Quick checks before filing (profile issues self_help)."""
+    c = Card()
+    kids = c.header(None, M("selfhelp.title"), M("selfhelp.subtitle", issue=issue_label,
+                                                  device=device.get("model") or "your device"))
+    kids += [c.text(M("selfhelp.step", n=i, text=step), "body") for i, step in enumerate(steps, 1)]
+    kids.append(c.row([c.button(M("selfhelp.not_fixed"), "self_help_result", {"fixed": "no"}),
+                       c.button(M("selfhelp.fixed"), "self_help_result", {"fixed": "yes"}, primary=False)]))
+    return c.build(kids)
+
+
+def self_help_done() -> list[dict]:
+    c = Card()
+    kids = c.header(None, M("selfhelp.done_title"), M("selfhelp.done_subtitle"))
+    kids.append(c.row([c.button(M("common.view_tickets"), "list_tickets"),
+                       c.button(M("done.another"), "start_over", primary=False)]))
+    return c.build(kids)
+
+
 # --- Step 3: show me ----------------------------------------------------------------
 
 

@@ -1,0 +1,25 @@
+# Log-based metrics for the agent (G4.2). Created by ops/observability.sh; SERVICE is replaced there.
+# Each entry: name, description, filter, optional label extractors (from the ticket_filed JSON line).
+- name: hw_tickets_filed
+  description: Tickets filed by the hardware agent, by intake path and device kind
+  filter: >-
+    resource.type="cloud_run_revision" AND resource.labels.service_name="SERVICE"
+    AND textPayload:"ticket_filed "
+  labels:
+    source: 'REGEXP_EXTRACT(textPayload, "\"source\": \"([a-z_]+)\"")'
+    device_kind: 'REGEXP_EXTRACT(textPayload, "\"device_kind\": \"([a-z_]*)\"")'
+- name: hw_self_help_fixed
+  description: Requests resolved by the quick checks, with nothing filed
+  filter: >-
+    resource.type="cloud_run_revision" AND resource.labels.service_name="SERVICE"
+    AND textPayload:"self_help_fixed"
+- name: hw_servicenow_failures
+  description: ServiceNow calls that failed or timed out inside a tool
+  filter: >-
+    resource.type="cloud_run_revision" AND resource.labels.service_name="SERVICE"
+    AND (textPayload:"ServiceNow call failed" OR textPayload:"ServiceNow unavailable")
+- name: hw_signin_failures
+  description: Turns where the user's ServiceNow sign-in was rejected or could not be checked
+  filter: >-
+    resource.type="cloud_run_revision" AND resource.labels.service_name="SERVICE"
+    AND (textPayload:"ServiceNow rejected the forwarded user token" OR textPayload:"identity lookup failed")

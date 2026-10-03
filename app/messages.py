@@ -76,6 +76,15 @@ DEFAULTS: dict[str, str] = {
     "issue.where": " in {location}",
     "issue.from_photo": "From your photo it looks like: {issue}",
 
+    # Before filing: quick checks (profile issues self_help).
+    "selfhelp.title": "A quick check first",
+    "selfhelp.subtitle": "{issue} on {device}. These often fix it in a minute. If not, I'll file it right away.",
+    "selfhelp.step": "{n}. {text}",
+    "selfhelp.fixed": "That fixed it",
+    "selfhelp.not_fixed": "Still not working",
+    "selfhelp.done_title": "Glad it's working",
+    "selfhelp.done_subtitle": "Nothing was filed. Come back any time if it happens again.",
+
     # Step 3: photos.
     "photo.title": "Show me the problem",
     "photo.subtitle": "{issue} on {whose} {device}. A photo lets the team fix it without a follow-up call.",

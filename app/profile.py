@@ -49,6 +49,8 @@ class Issue(_Strict):
     safety: bool = Field(False, description="Shows the safety text; use with min_urgency: critical")
     servicenow_value: str = Field("", description="Value written for {issue_value} (default: the key)")
     recommendation: str = Field("", description="Fixed recommendation for this problem, e.g. remote diagnostics")
+    self_help: list[str] = Field(default_factory=list, max_length=3,
+                                 description="Up to 3 quick checks offered before filing (empty: none)")
 
     @model_validator(mode="after")
     def _photo_needs_subject(self):

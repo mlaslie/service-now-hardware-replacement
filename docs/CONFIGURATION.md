@@ -92,6 +92,7 @@ entry is one button:
 | `safety` | Shows `service.safety_text`; pair with `min_urgency: critical` |
 | `recommendation` | A fixed recommendation for this problem (e.g. remote diagnostics first) |
 | `servicenow_value` | What `{issue_value}` writes for this problem (default: the key); set by `import-issues` |
+| `self_help` | Up to 3 quick checks shown before filing (personal devices, not safety). "That fixed it" files nothing; "Still not working" files the ticket with the checks recorded. Empty by default. |
 
 ### `service`
 | Field | Meaning |

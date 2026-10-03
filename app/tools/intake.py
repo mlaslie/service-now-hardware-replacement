@@ -284,6 +284,32 @@ async def _photos_unread(tool_context: ToolContext, draft: dict, employee: dict,
 
 
 @servicenow_errors
+async def self_help_result(fixed: bool, tool_context: ToolContext) -> dict:
+    """The user tried the quick checks on the card. Fixed: nothing is filed. Not fixed: continue
+    to filing, with the checks recorded on the ticket.
+
+    Args:
+        fixed: True if the checks fixed it ("that fixed it"), False if it still doesn't work.
+    """
+    employee = await _employee(tool_context)
+    if not employee:
+        return _no_identity(tool_context)
+    draft = _draft(tool_context)
+    if filed := _already_filed(draft):
+        return filed
+    issue = draft.get("issue") or {}
+    chosen = PROFILE.issue(issue.get("category", ""))
+    if fixed:
+        logger.info("self_help_fixed %s", issue.get("category", ""))  # deflected: no ticket (D6)
+        _save(tool_context, _new_draft())
+        _show(tool_context, cards.self_help_done())
+        return {"status": "ok", "step": "done", "filed": False}
+    draft["self_help_done"] = True
+    draft["self_help_tried"] = list(chosen.self_help) if chosen else []
+    return await _next_step(tool_context, draft, employee)
+
+
+@servicenow_errors
 async def skip_photo(tool_context: ToolContext) -> dict:
     """The user chose not to add a photo. Moves on to the review step."""
     employee = await _employee(tool_context)

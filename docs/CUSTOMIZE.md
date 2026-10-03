@@ -234,3 +234,19 @@ requester_changes:
 The user is told the request was sent to the service desk, and the ticket gets a note listing what
 they asked for. Check: ask the agent to raise the urgency of a test ticket and read its notes.
 
+## Offer a quick check before filing
+
+```yaml
+issues:
+  personal:
+    - key: wont_power_on
+      label: Won't turn on
+      self_help:
+        - Plug in the charger and wait 15 minutes
+        - Hold the power button for 10 seconds
+```
+
+Before filing, the user sees the checks with **Still not working** and **That fixed it**. A fix files
+nothing (logged as `self_help_fixed`); otherwise the ticket says "Already tried: ...". Never shown for
+equipment or safety concerns. Check: report "my laptop won't turn on".
+

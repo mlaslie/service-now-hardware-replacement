@@ -137,7 +137,7 @@ office" and one for "hospital" (today's behaviour).
 | ID | Item | Size |
 |---|---|---|
 | G3.1 | **Done: `app/profile.py`, `config/organization.yaml`, office example, 15 tests.** **Profile loader + schema** (pydantic): load, validate, show the effective config in the logs at startup, and a `--check` mode. Defaults reproduce today's behaviour exactly. | M |
-| G3.2 | **Branding**: agent display name, description and examples (agent card), brand colour (`theme.primaryColor`; document the measured limits: only primary buttons take it, secondary stay grey, GE controls fonts, `MaterialButton` ignores it), which buttons are primary, optional `iconUrl` / `agentDisplayName` theme fields (untested). | S |
+| G3.2 | **Done except the untested theme fields** (`iconUrl`, `agentDisplayName`: need a Gemini Enterprise check). **Branding**: agent display name, description and examples (agent card), brand colour (`theme.primaryColor`; document the measured limits: only primary buttons take it, secondary stay grey, GE controls fonts, `MaterialButton` ignores it), which buttons are primary, optional `iconUrl` / `agentDisplayName` theme fields (untested). | S |
 | G3.3 | **Done 2026-10-03: `config/messages.yaml` + `app/messages.py` (120 keys, placeholders checked).** **Wording**: every user-facing string (card titles, subtitles, button labels, the desktop/mobile question and accepted answers, safety text, confirmation text) in `config/messages.yaml`. Keys, not Python. Opens the door to G5.1 (languages). | M |
 | G3.4 | **Problem choices**: per device kind, the list of issue options, each with its label, the ServiceNow value it writes (category / subcategory / custom field), whether a photo is required / recommended / not asked, what to photograph, and a minimum urgency (e.g. safety concern = critical). Replaces `ISSUE_CATEGORIES`, `EQUIPMENT_ISSUES`, `PHOTO_POLICY`, `_BLOCKING`. | M |
 | G3.5 | **Done via option B + import: `scripts/sn_profile.py import-issues` / `check`; no run-time reads.** **Use the organization's own ServiceNow choice lists.** Option A: `source: servicenow` reads `sys_choice` for a field (e.g. `incident.subcategory` where `dependent_value=hardware`, or a custom `u_hardware_type`) and shows exactly those, with their labels and order, cached. Option B: a static list in the profile, each mapped to a choice value. Either way the agent only ever writes values that exist; `--check` flags profile values missing from ServiceNow. | M |
@@ -146,7 +146,7 @@ office" and one for "hospital" (today's behaviour).
 | G3.8 | **Partly done 2026-10-03: `requester_changes` (urgency, status, ship-to, cancel -> desk note when off); response targets, refresh ages and recommendation texts were already in the profile; a fallback group is not (needs a group per instance).** **Service rules**: response targets per priority, refresh ages per device type, recommendation texts, "who handles it" fallback group, whether requesters may change urgency / reopen / cancel (or only request it via a note). | S |
 | G3.9 | **Done 2026-10-03: profile `features` (6 switches).** **Feature switches**: equipment reporting, photo analysis, followers / duplicate detection, saved addresses, memory, the desktop/mobile question (off for web-only organizations), safety concern category, ownership check. | S |
 | G3.10 | **Persona and tone**: industry (hospital / office / university / field service), audience, tone, and extra rules appended to the instruction from the profile, with the tool-routing part of the instruction kept in code so customizations can't break the flow. | S |
-| G3.11 | **Demo data per organization**: the seed files (`users.json`, `catalog.json`, `equipment.json`) documented as templates, with a generic-office example next to the hospital one. | S |
+| G3.11 | **Done 2026-10-03: `seed/README.md`, `--no-equipment` for an office.** **Demo data per organization**: the seed files (`users.json`, `catalog.json`, `equipment.json`) documented as templates, with a generic-office example next to the hospital one. | S |
 | G3.12 | **Done 2026-10-03: `docs/CUSTOMIZE.md`.** **Customization guide** (`docs/CUSTOMIZE.md`): one recipe per common change, e.g. "show only our hardware types", "change the button colour", "add a problem type with a required photo", "route printers to the Print team", "turn off equipment reporting", each with the YAML snippet and how to verify. | M |
 
 ### G4. Operate and trust (P2)
@@ -154,9 +154,9 @@ office" and one for "hospital" (today's behaviour).
 | ID | Item | Size |
 |---|---|---|
 | G4.1 | **Done 2026-10-03: `docs/PRIVACY.md` (blurring not built).** **Privacy and security notes**, especially for hospitals: photos may capture patients or screens with patient data (add a reminder on the photo step; optional face/PHI blur); photo retention (GCS lifecycle rule, attachment copied to ServiceNow); what is stored where (sessions, memory, saved addresses) and how to delete a person's data; tokens never logged; VPC-SC / CMEK / data residency options. | M |
-| G4.2 | **Observability**: a Cloud Logging dashboard (turns, tickets filed, paths taken (D10), errors, ServiceNow refusals, model latency) and alerting on error rate and ServiceNow sign-in failures. | M |
+| G4.2 | **Done 2026-10-03: `ops/observability.sh` (log-based metrics + dashboard, dry run by default; not applied here).** **Observability**: a Cloud Logging dashboard (turns, tickets filed, paths taken (D10), errors, ServiceNow refusals, model latency) and alerting on error rate and ServiceNow sign-in failures. | M |
 | G4.3 | **Done 2026-10-03: `docs/COSTS.md` (formulas, no measured prices).** **Cost guide**: per-ticket cost of model calls, vision, Cloud Run min-instance, Agent Runtime sessions/memory; knobs to reduce it. | S |
-| G4.4 | **Partly done: `evals/run.py` runs against whatever profile is loaded.** **Regression safety for customizations**: evals (A2) run against the organization's profile; `pytest` fixtures that load any profile, so a customization that breaks the flow fails in CI. | M |
+| G4.4 | **Done 2026-10-03: end-to-end filing test under the office profile (`tests/test_profile.py`).** **Regression safety for customizations**: evals (A2) run against the organization's profile; `pytest` fixtures that load any profile, so a customization that breaks the flow fails in CI. | M |
 | G4.5 | **Done 2026-10-03: `docs/RUNBOOK.md`.** **Support runbook**: rotate the OAuth client secret, re-register after a card change, instance hibernation, user reports "wrong person", clearing a stuck conversation. | S |
 
 ### G5. Brainstorm: other customizations organizations will ask for (P2, pick later)
@@ -316,7 +316,7 @@ SETUP.md outline: prerequisites → `cp .env.example .env` → `bootstrap.sh` �
 - **D4.** Service Catalog item instead of an incident (the production path in the handoff). It removes the
   need for `itil`/`sn_incident_write` on employees and sets fields server-side.
 - **D5.** Scripted REST "my devices" endpoint, so employees don't need the `asset` role.
-- **D6.** Self-help deflection for `performance`/`wont_power_on`: 2–3 guided checks before filing,
+- **D6. Done 2026-10-03** (opt-in per problem: `self_help` in the profile; off by default). Self-help deflection for `performance`/`wont_power_on`: 2–3 guided checks before filing,
   logged in the ticket.
 - **D7.** Returns/logistics: after fulfilment, show the return label and shipping instructions for the old device.
 

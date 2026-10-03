@@ -1,0 +1,141 @@
+{
+ "displayName": "Hardware replacement agent",
+ "mosaicLayout": {
+  "columns": 12,
+  "tiles": [
+   {
+    "xPos": 0,
+    "yPos": 0,
+    "width": 6,
+    "height": 4,
+    "widget": {
+     "title": "Tickets filed, by intake path",
+     "xyChart": {
+      "dataSets": [
+       {
+        "plotType": "STACKED_BAR",
+        "timeSeriesQuery": {
+         "timeSeriesFilter": {
+          "filter": "metric.type=\"logging.googleapis.com/user/hw_tickets_filed\"",
+          "aggregation": {
+           "alignmentPeriod": "3600s",
+           "perSeriesAligner": "ALIGN_SUM",
+           "crossSeriesReducer": "REDUCE_SUM",
+           "groupByFields": [
+            "metric.label.source"
+           ]
+          }
+         }
+        }
+       }
+      ]
+     }
+    }
+   },
+   {
+    "xPos": 6,
+    "yPos": 0,
+    "width": 6,
+    "height": 4,
+    "widget": {
+     "title": "Tickets filed, by device kind",
+     "xyChart": {
+      "dataSets": [
+       {
+        "plotType": "STACKED_BAR",
+        "timeSeriesQuery": {
+         "timeSeriesFilter": {
+          "filter": "metric.type=\"logging.googleapis.com/user/hw_tickets_filed\"",
+          "aggregation": {
+           "alignmentPeriod": "3600s",
+           "perSeriesAligner": "ALIGN_SUM",
+           "crossSeriesReducer": "REDUCE_SUM",
+           "groupByFields": [
+            "metric.label.device_kind"
+           ]
+          }
+         }
+        }
+       }
+      ]
+     }
+    }
+   },
+   {
+    "xPos": 0,
+    "yPos": 4,
+    "width": 4,
+    "height": 4,
+    "widget": {
+     "title": "Fixed by quick checks (nothing filed)",
+     "xyChart": {
+      "dataSets": [
+       {
+        "plotType": "STACKED_BAR",
+        "timeSeriesQuery": {
+         "timeSeriesFilter": {
+          "filter": "metric.type=\"logging.googleapis.com/user/hw_self_help_fixed\"",
+          "aggregation": {
+           "alignmentPeriod": "3600s",
+           "perSeriesAligner": "ALIGN_SUM"
+          }
+         }
+        }
+       }
+      ]
+     }
+    }
+   },
+   {
+    "xPos": 4,
+    "yPos": 4,
+    "width": 4,
+    "height": 4,
+    "widget": {
+     "title": "ServiceNow failures in tools",
+     "xyChart": {
+      "dataSets": [
+       {
+        "plotType": "STACKED_BAR",
+        "timeSeriesQuery": {
+         "timeSeriesFilter": {
+          "filter": "metric.type=\"logging.googleapis.com/user/hw_servicenow_failures\"",
+          "aggregation": {
+           "alignmentPeriod": "3600s",
+           "perSeriesAligner": "ALIGN_SUM"
+          }
+         }
+        }
+       }
+      ]
+     }
+    }
+   },
+   {
+    "xPos": 8,
+    "yPos": 4,
+    "width": 4,
+    "height": 4,
+    "widget": {
+     "title": "Sign-in failures",
+     "xyChart": {
+      "dataSets": [
+       {
+        "plotType": "STACKED_BAR",
+        "timeSeriesQuery": {
+         "timeSeriesFilter": {
+          "filter": "metric.type=\"logging.googleapis.com/user/hw_signin_failures\"",
+          "aggregation": {
+           "alignmentPeriod": "3600s",
+           "perSeriesAligner": "ALIGN_SUM"
+          }
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  ]
+ }
+}

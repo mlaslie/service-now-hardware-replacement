@@ -246,3 +246,10 @@ def test_clear_tickets_keeps_people_and_equipment(env):
     sn_seed.cmd_clear_tickets(sn, yes=True)
     assert sorted(sn.tables["incident"]) == ["i3", "i4"]
     assert len(_equipment(sn)) == 8 and sn.tables["sys_user"]["u1"]
+
+
+def test_an_office_seed_has_no_equipment(env):
+    sn, users, _ = env
+    sn_seed.cmd_set(sn, users, sn_seed.HERE / "catalog.json", None)
+    assert not [r for r in sn.tables.get("alm_hardware", {}).values() if (r.get("asset_tag") or "").startswith("CE-")]
+    assert sn.tables["alm_hardware"]  # people still get their own devices

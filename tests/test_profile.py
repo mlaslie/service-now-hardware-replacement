@@ -180,3 +180,35 @@ def test_a_key_in_both_lists_must_mean_the_same(tmp_path):
     data["issues"]["personal"].append(shared)
     with pytest.raises(profile.ProfileError, match="different"):
         profile.load(_write(tmp_path, data))
+
+
+def test_a_request_files_end_to_end_on_another_profile():
+    """G4.4: a customization must not break the flow. Runs a personal-device request to a filed ticket
+    with the office profile (a fresh interpreter, since the profile is loaded once)."""
+    code = """
+import asyncio, json
+from tests import test_paths as t
+from app import memory, servicenow, tools
+from app.tools import filing
+
+api = t.FakeTableAPI()
+servicenow._request = api
+async def none(*a, **k): return []
+async def nothing(*a, **k): return None
+memory.saved_addresses, memory.save_address = none, nothing
+memory.recall, memory.remember_conversation = none, nothing
+filing._attach_photos = nothing
+
+async def main():
+    ctx = t.ctx_for()
+    await t.pick(ctx, "123456")
+    await tools.set_issue("wont_power_on", "Dead", "normal", ctx)
+    result = await tools.submit_ticket(ctx)
+    print(json.dumps({"status": result["status"], "tickets": len(api.tables["incident"])}))
+asyncio.run(main())
+"""
+    env = dict(os.environ, ORGANIZATION_PROFILE=str(OFFICE), GOOGLE_CLOUD_PROJECT="p", AGENT_ENGINE_ID="1",
+               SN_INSTANCE_URL="https://example.service-now.com")
+    out = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env, capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr[-2000:]
+    assert json.loads(out.stdout.strip().splitlines()[-1]) == {"status": "submitted", "tickets": 1}

@@ -474,7 +474,9 @@ class Seeder:
             log(f"  + {item['asset_tag']}  {item['manufacturer']} {item['model']}  ({item['department']}, {item['room']})")
 
 
-def cmd_set(sn: SN, users_file: Path, catalog_file: Path, equipment_file: Path | None = None) -> None:
+def cmd_set(sn: SN, users_file: Path, catalog_file: Path,
+            equipment_file: Path | None = HERE / "equipment.json") -> None:
+    # equipment_file=None: people and their own devices only (--no-equipment, an office).
     users = json.loads(users_file.read_text())
     catalog = json.loads(catalog_file.read_text())
     m = Manifest.load()
@@ -489,8 +491,7 @@ def cmd_set(sn: SN, users_file: Path, catalog_file: Path, equipment_file: Path |
         log(f"{spec['user_name']}:")
         user = seeder.user(spec)
         seeder.issue(spec["user_name"], user, spec.get("items"), has_licenses)
-    equipment_file = equipment_file or HERE / "equipment.json"
-    if equipment_file.exists():
+    if equipment_file is not None and equipment_file.exists():
         log("hospital equipment:")
         seeder.equipment(json.loads(equipment_file.read_text()))
     m.save()
@@ -826,6 +827,7 @@ def main() -> None:
     p.add_argument("--catalog", type=Path, default=HERE / "catalog.json")
     p.add_argument("--equipment", type=Path, default=HERE / "equipment.json",
                    help="shared and clinical equipment to create (default seed/equipment.json)")
+    p.add_argument("--no-equipment", action="store_true", help="people and their own devices only (an office)")
     p = sub.add_parser("report", help="write the PDF asset register")
     p.add_argument("--out", type=Path, default=STATE_DIR / "office-assets.pdf")
     p = sub.add_parser("reset", help="undo everything `set` did and delete the users' tickets")
@@ -842,7 +844,7 @@ def main() -> None:
         return login(client)
     sn = SN(client)
     if args.cmd == "set":
-        cmd_set(sn, args.users, args.catalog, args.equipment)
+        cmd_set(sn, args.users, args.catalog, None if args.no_equipment else args.equipment)
     elif args.cmd == "report":
         cmd_report(sn, args.out)
     elif args.cmd == "clear-tickets":

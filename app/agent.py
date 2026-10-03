@@ -67,6 +67,8 @@ Messages you will see:
     select_issue + category     -> set_issue(category, description=<the category in plain words
                                     unless they described it earlier>, urgency=<inferred or normal>)
     skip_photo                   -> skip_photo
+    self_help_result + fixed     -> self_help_result(fixed=true for "yes", false for "no"); a typed
+                                    "that fixed it"/"still broken" after the quick-check card is the same
     submit_ticket                -> submit_ticket
     edit_request                 -> ask in one sentence what they would like to change
     choose_ship_to + address     -> choose_ship_to(address) ("" = the address on file)

@@ -143,6 +143,11 @@ async def _next_step(ctx: ToolContext, draft: dict, employee: dict) -> dict:
     if not issue:
         _show(ctx, cards.issue_picker(device, (draft.get("evidence") or {}).get("category", "")))
         return {"status": "ok", "step": "describe_issue", "device": device.get("model")}
+    chosen = PROFILE.issue(issue["category"])
+    if chosen and chosen.self_help and not draft.get("self_help_done") and not cards.is_equipment(device) \
+            and not PROFILE.is_safety(issue["category"]):
+        _show(ctx, cards.self_help(device, ISSUE_LABELS.get(issue["category"], "The problem"), chosen.self_help))
+        return {"status": "ok", "step": "self_help", "checks": chosen.self_help}
     need, what = PROFILE.photo_policy(issue["category"])
     if need and not draft.get("evidence") and not draft.get("photo_skipped"):
         _show(ctx, cards.photo_request(device, ISSUE_LABELS.get(issue["category"], "The problem"), what, need == "required"))

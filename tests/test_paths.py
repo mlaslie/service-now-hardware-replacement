@@ -1090,3 +1090,39 @@ async def test_a_follower_can_stop_following(sn):
     assert result["status"] == "ok" and sn.tables["incident"][0]["watch_list"] == "someone_else"
     assert (await tools.list_my_tickets(john))["count"] == 0
     assert (await tools.unfollow_ticket(first["ticket"], jane))["status"] == "error"
+
+
+# --- quick checks before filing (D6, profile issues self_help) -------------------------------
+
+
+@pytest.fixture
+def checks(monkeypatch):
+    issue = cards.PROFILE.issue("wont_power_on")
+    monkeypatch.setattr(issue, "self_help", ["Plug in the charger for 15 minutes", "Hold the power button for 10 seconds"])
+    return issue.self_help
+
+
+async def test_quick_checks_that_fix_it_file_nothing(sn, checks):
+    ctx = ctx_for()
+    await pick(ctx, "123456")
+    result = await tools.set_issue("wont_power_on", "Dead", "normal", ctx)
+    assert result["step"] == "self_help" and "Hold the power button" in card_text(ctx)
+    done = await tools.self_help_result(True, ctx)
+    assert done["filed"] is False and not sn.tables["incident"] and "Glad it's working" in card_text(ctx)
+
+
+async def test_quick_checks_that_dont_help_are_recorded_on_the_ticket(sn, checks):
+    ctx = ctx_for()
+    await pick(ctx, "123456")
+    await tools.set_issue("wont_power_on", "Dead", "normal", ctx)
+    result = await tools.self_help_result(False, ctx)
+    assert result["step"] == "review"
+    await tools.submit_ticket(ctx)
+    assert "Already tried: Plug in the charger for 15 minutes; Hold the power button" in sn.tables["incident"][0]["description"]
+
+
+async def test_no_quick_checks_by_default(sn):
+    ctx = ctx_for()
+    await pick(ctx, "123456")
+    result = await tools.set_issue("wont_power_on", "Dead", "normal", ctx)
+    assert result["step"] == "review"
