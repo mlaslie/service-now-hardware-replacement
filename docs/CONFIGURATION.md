@@ -27,7 +27,9 @@ uv run python -m app.profile            # validates config/organization.yaml and
 | `GOOGLE_CLOUD_LOCATION` | | `global` | Where the model is served |
 | `AGENT_ENGINE_LOCATION` | | `REGION` | Agent Runtime instance location |
 | `ARTIFACT_BUCKET` | | `<project>-hardware-ticket-photos` | Bucket for users' photos |
-| `ORGANIZATION_PROFILE` | | `config/organization.yaml` | Which profile to load |
+| `ORGANIZATION_PROFILE` | | `config/organization.yaml` | Which profile to load (a file under `config/`; deploy passes it to Cloud Run) |
+| `MESSAGES_FILE` | | `config/messages.yaml` | Which wording file to load (under `config/`) |
+| `VISION_MODEL` | | `MODEL` | Model for reading photos only |
 | `SERVICE_URL` | | set by `deploy.sh` | Public URL advertised in the agent card |
 
 `.env` is read by the agent when run locally and by every script. It is never committed and never
@@ -176,7 +178,8 @@ check with `uv run python -m app.profile`, deploy.
 
 **An office with no medical equipment.** Start from `config/examples/office.yaml`: `clinical_categories: []`.
 
-**Use a different profile per environment.** `ORGANIZATION_PROFILE=config/examples/office.yaml` in `.env`.
+**Use a different profile per environment.** `ORGANIZATION_PROFILE=config/examples/office.yaml` in that
+environment's `.env`, then `./scripts/deploy.sh` (it passes the setting to Cloud Run; the file must be under `config/`).
 
 Not configurable yet (see `docs/BACKLOG.md` section G3): showing your ServiceNow choice lists
 directly, languages (one `messages.yaml` per language is the planned route).

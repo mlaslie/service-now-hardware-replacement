@@ -173,6 +173,8 @@ def device_picker(employee: dict, assets: list[dict]) -> list[dict]:
     kids.append(c.button(M("common.view_tickets"), "list_tickets"))
     kids += [c.divider(), c.text(M("picker.requesting_as", name=employee.get("name", ""), email=employee.get("email", ""),
                                    location=employee.get("location", "")), "caption")]
+    if employee.get("is_admin"):
+        kids.append(c.text(M("admin.warning", name=employee.get("name", "")), "body"))
     return c.build(kids)
 
 
@@ -206,10 +208,14 @@ def confirm_device(device: dict, note: str = "") -> list[dict]:
     return c.build(kids)
 
 
-def existing_tickets(device: dict, tickets: list[dict]) -> list[dict]:
-    """Shared equipment is often reported by several people: offer to join the open ticket."""
+def existing_tickets(device: dict, tickets: list[dict], own: bool = False) -> list[dict]:
+    """Shared equipment is often reported by several people: offer to join the open ticket. For the
+    user's own device (own=True): they already reported it, so offer to add to that ticket."""
     c = Card()
-    kids = c.header(None, M("reported.title"), M("reported.subtitle", device=_device_label(device)))
+    if own:
+        kids = c.header(None, M("reported.own_title"), M("reported.own_subtitle", device=_device_label(device)))
+    else:
+        kids = c.header(None, M("reported.title"), M("reported.subtitle", device=_device_label(device)))
     for t in tickets:
         kids += [c.divider(), c.text(f"{t['number']}  |  {t['state']}", "h5"), c.text(t["short_description"], "body"),
                  c.text(" | ".join(filter(None, [M("reported.by", name=t.get("caller") or "someone", date=t["opened"][:10]),
@@ -217,8 +223,10 @@ def existing_tickets(device: dict, tickets: list[dict]) -> list[dict]:
                                                  if t.get("assignment_group") else M("reported.unassigned")])),
                         "caption")]
     first = tickets[0]["number"]
-    kids.append(c.row([c.button(M("reported.follow", number=first), "follow_ticket", {"number": first}),
-                       c.button(M("reported.separately"), "report_separately", primary=False)]))
+    kids.append(c.row([c.button(M("reported.own_add" if own else "reported.follow", number=first), "follow_ticket",
+                                {"number": first}),
+                       c.button(M("reported.own_new" if own else "reported.separately"), "report_separately",
+                                primary=False)]))
     return c.build(kids)
 
 
@@ -347,6 +355,8 @@ def review(draft: dict, employee: dict) -> list[dict]:
         kids.append(c.text(M("review.safety", text=SAFETY_TEXT), "body"))
     for warning in draft.get("warnings") or []:
         kids.append(c.text(M("review.note", text=warning), "caption"))
+    if employee.get("is_admin"):
+        kids.append(c.text(M("admin.warning", name=employee.get("name", "")), "body"))
 
     kids.append(c.row([
         c.button(M("review.submit"), "submit_ticket"),
@@ -409,6 +419,7 @@ def ticket_list(tickets: list[dict], include_closed: bool, more: bool = False) -
                      M("tickets.priority", priority=PRIORITY_LABELS.get(t["priority"], t["priority"])),
                      M("tickets.following", name=t.get("caller") or "someone else") if t.get("following") else ""])),
                      "caption"),
+                 *([c.text(M("tickets.latest", note=t["latest_note"]), "body")] if t.get("latest_note") else []),
                  c.button(M("tickets.details"), "view_ticket", {"number": t["number"]})]
     if more:
         kids += [c.divider(), c.text(M("tickets.more", count=len(tickets)), "caption")]

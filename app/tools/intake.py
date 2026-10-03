@@ -54,6 +54,7 @@ async def select_device(asset_tag: str, tool_context: ToolContext) -> dict:
         return {"status": "not_found", "message": f"No asset {asset_tag} in inventory; asked the user for a label photo."}
     draft = _set_device(_intake_draft(tool_context), _device_from_asset(asset, employee), asset)
     draft["match_note"] = _match_note(asset, how) if how else ""
+    draft["source"] = "tag_fuzzy" if how else "tag"  # a button click or a typed tag/serial (logged at filing)
     return await _next_step(tool_context, draft, employee)
 
 
@@ -88,6 +89,7 @@ async def find_device(description: str, tool_context: ToolContext) -> dict:
         _show(tool_context, cards.device_choices("Which one do you mean?", best[:6]))
         return {"status": "ok", "step": "choose_device", "matches": _asset_summary(best[:6])}
     draft = _set_device(_intake_draft(tool_context), _device_from_asset(best[0], employee), best[0])
+    draft["source"] = "description"
     return await _next_step(tool_context, draft, employee)
 
 
@@ -169,16 +171,27 @@ async def analyze_photos(tool_context: ToolContext) -> dict:
     if not PROFILE.features.photo_analysis:
         return await _photos_unread(tool_context, draft, employee, photos)
     hint = (draft.get("issue") or {}).get("description", "")
+    # A photo already read in this request (same bytes, sent again) isn't sent to the model again.
+    known = {p.get("sha256"): p.get("findings") for p in draft.get("photos") or [] if p.get("sha256") and p.get("findings")}
+    fresh = [p for p in photos if p.get("sha256") not in known]
     results = await asyncio.gather(
-        *(vision.analyze_photo(p["uri"], p["mime_type"], hint) for p in photos), return_exceptions=True
+        *(vision.analyze_photo(p["uri"], p["mime_type"], hint) for p in fresh), return_exceptions=True
     )
+    read = {id(p): r for p, r in zip(fresh, results)}
     findings = []
-    for photo, result in zip(photos, results):
+    for photo in photos:
+        if photo.get("sha256") in known:
+            logger.info("photo %s is a repeat; reusing its findings", photo["photo_id"])
+            continue  # already on the draft, with its findings
+        result = read[id(photo)]
         if isinstance(result, Exception):
             logger.warning("photo analysis failed for %s: %s", photo["photo_id"], result)
             continue
         findings.append((photo, result.model_dump(mode="json")))
     tool_context.state["last_photo_ids"] = []
+    if not findings and len(fresh) < len(photos):
+        result = await _next_step(tool_context, draft, employee)
+        return result | {"findings": [], "note": "That photo was already received for this request."}
     if not findings:
         return {"status": "error", "message": "The photo could not be read. Ask the user to retake it in better light."}
 
@@ -188,7 +201,7 @@ async def analyze_photos(tool_context: ToolContext) -> dict:
     owned: list[dict] | None = None
     for photo, f in findings:
         draft["photos"].append({"uri": photo["uri"], "photo_id": photo["photo_id"], "filename": photo.get("filename", ""),
-                                "mime_type": photo["mime_type"], "findings": f})
+                                "mime_type": photo["mime_type"], "findings": f, "sha256": photo.get("sha256", "")})
 
         # Label data -> inventory match; failing that, one of the user's own devices.
         current = draft.get("device") or {}
@@ -206,6 +219,7 @@ async def analyze_photos(tool_context: ToolContext) -> dict:
             elif not current:
                 _set_device(draft, _device_from_asset(asset, employee, confirmed=not how), asset)
                 draft["match_note"] = _match_note(asset, how) if how else ""
+                draft["source"] = "photo_match" if how else "photo_label"
             photo_serial = f["serial_number"].upper().replace(" ", "")
             if not how and photo_serial and asset.get("serial_number") and photo_serial != asset["serial_number"].upper():
                 photo_warnings.append(

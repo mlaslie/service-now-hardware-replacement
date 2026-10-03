@@ -25,8 +25,22 @@ ENGINE_LOCATION="${AGENT_ENGINE_LOCATION:-$REGION}"
 SA_NAME="hardware-agent"
 SA="${SA_NAME}@${PROJECT}.iam.gserviceaccount.com"
 
-echo "== checking the organization profile"
-if command -v uv >/dev/null; then uv run python -m app.profile >/dev/null || { uv run python -m app.profile; exit 1; }; fi
+echo "== checking the organization profile and wording"
+if command -v uv >/dev/null; then
+  uv run python -m app.profile >/dev/null || { uv run python -m app.profile; exit 1; }
+  uv run python -m app.messages >/dev/null || { uv run python -m app.messages; exit 1; }
+fi
+# Optional settings, passed to Cloud Run only when set. Files must be inside config/ (the image has
+# app/ and config/ only), as paths relative to the repo root, e.g. config/examples/office.yaml.
+OPTIONAL_ENV=""
+for name in ORGANIZATION_PROFILE MESSAGES_FILE VISION_MODEL; do
+  value="${!name:-}"
+  [[ -z "$value" ]] && continue
+  if [[ "$name" != VISION_MODEL && "$value" != config/* ]]; then
+    echo "$name=$value must be a file under config/ (only config/ is in the container)"; exit 1
+  fi
+  OPTIONAL_ENV+="|${name}=${value}"
+done
 
 PROJECT_NUMBER="$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')"
 # Predictable URL, so the agent card is right on the first deploy.
@@ -52,7 +66,7 @@ echo "== deploy"
 gcloud run deploy "$SERVICE" --source . --project="$PROJECT" --region="$REGION" \
   --service-account="$SA" --no-allow-unauthenticated --ingress=all \
   --memory=1Gi --cpu=1 --concurrency=4 --timeout=300 --min-instances=1 \
-  --set-env-vars="^|^GOOGLE_CLOUD_PROJECT=${PROJECT}|GOOGLE_CLOUD_LOCATION=${MODEL_LOCATION}|MODEL=${MODEL}|ARTIFACT_BUCKET=${BUCKET}|AGENT_ENGINE_ID=${AGENT_ENGINE_ID}|AGENT_ENGINE_LOCATION=${ENGINE_LOCATION}|REGION=${REGION}|SERVICE_URL=${SERVICE_URL}|SN_INSTANCE_URL=${SN_INSTANCE_URL}"
+  --set-env-vars="^|^GOOGLE_CLOUD_PROJECT=${PROJECT}|GOOGLE_CLOUD_LOCATION=${MODEL_LOCATION}|MODEL=${MODEL}|ARTIFACT_BUCKET=${BUCKET}|AGENT_ENGINE_ID=${AGENT_ENGINE_ID}|AGENT_ENGINE_LOCATION=${ENGINE_LOCATION}|REGION=${REGION}|SERVICE_URL=${SERVICE_URL}|SN_INSTANCE_URL=${SN_INSTANCE_URL}${OPTIONAL_ENV}"
 
 ACTUAL_URL="$(gcloud run services describe "$SERVICE" --project="$PROJECT" --region="$REGION" --format='value(status.url)')"
 echo "service url: $ACTUAL_URL"

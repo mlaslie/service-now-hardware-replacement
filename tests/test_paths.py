@@ -694,11 +694,36 @@ async def test_second_reporter_can_still_report_separately(sn):
     assert result["step"] == "describe_issue"
 
 
-async def test_personal_devices_skip_the_already_reported_check(sn):
+async def test_a_second_request_for_the_same_laptop_offers_the_open_ticket(sn):
+    """D9: someone who already reported their laptop is offered to add to that ticket."""
+    ctx = ctx_for(JANE)
+    first = await _file(ctx)
+    await tools.start_request(ctx)
+    result = await pick(ctx, "123456")
+    assert result["step"] == "already_reported" and result["open_tickets"][0]["number"] == first["ticket"]
+    assert "You already have an open ticket" in card_text(ctx)
+    await tools.set_issue("wont_power_on", "Still dead after charging overnight", "normal", ctx)
+    added = await tools.follow_ticket(first["ticket"], ctx)
+    assert added["own_ticket"] and len(sn.tables["incident"]) == 1
+    assert "Still dead after charging overnight" in sn.tables["incident"][0]["comments_log"][-1]
+    assert not sn.tables["incident"][0].get("watch_list")  # no self-following
+
+
+async def test_someone_elses_ticket_on_a_personal_device_is_not_offered(sn):
+    await _file(ctx_for(JANE))
+    sn.tables["incident"][0]["caller_id"] = {"value": JOHN}
+    ctx = ctx_for(JANE, session="sess-2")
+    await tools.start_request(ctx)
+    result = await pick(ctx, "123456")
+    assert result["step"] == "describe_issue"
+
+
+async def test_a_new_request_can_still_be_filed(sn):
     ctx = ctx_for(JANE)
     await _file(ctx)
     await tools.start_request(ctx)
-    result = await pick(ctx, "123456")
+    await pick(ctx, "123456")
+    result = await tools.report_separately(ctx)
     assert result["step"] == "describe_issue"
 
 
@@ -1003,3 +1028,50 @@ async def test_cancel_left_to_the_desk(sn, switch):
     filed = await _file(ctx)
     result = await tools.cancel_ticket(filed["ticket"], "found a spare", ctx)
     assert sn.tables["incident"][0]["state"] != "8" and result["requested_from_desk"]
+
+
+async def test_the_same_photo_twice_is_read_once(sn, monkeypatch):
+    ctx = ctx_for()
+    await pick(ctx, "123456")
+    await tools.set_issue("cracked_screen", "Cracked", "normal", ctx)
+    calls = []
+
+    async def analyze(uri, mime, hint=""):
+        calls.append(uri)
+        return damage()
+
+    monkeypatch.setattr(vision, "analyze_photo", analyze)
+    for pid in ("ph_a", "ph_b"):  # the same bytes, attached twice
+        ctx.state[f"photo:{pid}"] = {"photo_id": pid, "uri": f"gs://b/{pid}.jpg", "mime_type": "image/jpeg",
+                                     "sha256": "same"}
+        ctx.state["last_photo_ids"] = [pid]
+        result = await tools.analyze_photos(ctx)
+        assert result["step"] == "review"
+    assert len(calls) == 1 and len(draft(ctx)["photos"]) == 1
+
+
+async def test_each_filed_ticket_logs_its_path(sn, caplog):
+    import json as _json
+    import logging
+    caplog.set_level(logging.INFO, logger="app.tools.filing")
+    await _file(ctx_for())
+    line = next(r.getMessage() for r in caplog.records if r.getMessage().startswith("ticket_filed "))
+    data = _json.loads(line.split(" ", 1)[1])
+    assert data["source"] == "tag" and data["device_kind"] == "personal" and data["issue"] == "wont_power_on"
+    assert "jane" not in line.lower()  # no personal data in the path log
+
+
+async def test_whats_happening_shows_the_latest_note_per_ticket(sn, monkeypatch):
+    """D8: one digest card instead of opening each ticket."""
+    ctx = ctx_for()
+    filed = await _file(ctx)
+
+    async def notes(sys_id):
+        return [{"when": "2026-10-02 09:00:00", "who": "desk", "kind": "note", "text": "Replacement ships Monday"}]
+
+    monkeypatch.setattr(servicenow, "notes", notes)
+    result = await tools.list_my_tickets(ctx, latest_notes=True)
+    assert result["tickets"][0]["latest_note"] == "Replacement ships Monday"
+    assert "Latest: Replacement ships Monday" in card_text(ctx)
+    plain = await tools.list_my_tickets(ctx)
+    assert "Latest:" not in card_text(ctx) and plain["tickets"][0]["number"] == filed["ticket"]

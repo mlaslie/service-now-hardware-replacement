@@ -1,6 +1,7 @@
 """Existing tickets: list, show, change (attempt, verify, note), cancel, follow.
 """
 
+import asyncio
 import logging
 
 from google.adk.tools import ToolContext
@@ -44,11 +45,14 @@ async def _own_ticket(ctx: ToolContext, number: str) -> tuple[dict | None, dict 
 
 
 @servicenow_errors
-async def list_my_tickets(tool_context: ToolContext, include_closed: bool = False) -> dict:
+async def list_my_tickets(tool_context: ToolContext, include_closed: bool = False,
+                          latest_notes: bool = False) -> dict:
     """Shows the user's hardware tickets, newest first.
 
     Args:
         include_closed: True to include resolved, closed and canceled tickets.
+        latest_notes: True when they ask what's happening or for updates across their tickets
+            ("any news on my replacement?"): each open ticket then shows its latest note.
     """
     employee = await _employee(tool_context)
     if not employee:
@@ -59,9 +63,17 @@ async def list_my_tickets(tool_context: ToolContext, include_closed: bool = Fals
     tickets = tickets[:shown]
     for t in tickets:
         t["following"] = bool(t.get("caller_id")) and t["caller_id"] != employee["sys_id"]
+    if latest_notes:
+        # One digest instead of opening each ticket (D8): the newest note of up to 5 open tickets.
+        open_ = [t for t in tickets if t.get("state_code") in servicenow.ACTIVE_STATES][:5]
+        found = await asyncio.gather(*(servicenow.notes(t["sys_id"]) for t in open_), return_exceptions=True)
+        for t, entries in zip(open_, found):
+            if isinstance(entries, list) and entries:
+                t["latest_note"] = entries[0]["text"][:200]
     _show(tool_context, cards.ticket_list(tickets, include_closed, more))
     return {"status": "ok", "count": len(tickets), "more": more,
-            "tickets": [{k: t[k] for k in ("number", "short_description", "state", "priority")} for t in tickets]}
+            "tickets": [{k: t.get(k, "") for k in ("number", "short_description", "state", "priority", "latest_note")}
+                        for t in tickets]}
 
 
 @servicenow_errors
@@ -338,9 +350,17 @@ async def follow_ticket(number: str, tool_context: ToolContext) -> dict:
     if not ticket:
         return {"status": "not_found", "message": f"{number} is no longer open for this device. Offer to report it as new."}
     issue = draft.get("issue") or {}
+    problem = f"{ISSUE_LABELS.get(issue.get('category'), '')}: {issue.get('description', '')}" if issue else ""
+    if ticket.get("caller_id") == employee["sys_id"]:
+        # Their own open ticket for this device (D9): add the update, no following needed.
+        note = " ".join(filter(None, ["Update from the reporter.", problem])) or "The reporter says it is still a problem."
+        saved = await servicenow.update_incident(employee["sys_id"], ticket["number"], {"comments": note}) or ticket
+        draft["submitted_number"] = saved["number"]
+        _save(tool_context, draft)
+        result = await _show_ticket(tool_context, saved, "Your update was added to your open ticket.", "change")
+        return result | {"status": "ok", "following": False, "own_ticket": True, "note_added": note}
     note = " ".join(filter(None, [
-        f"Also reported by {employee.get('name')} ({employee.get('department') or 'no department'}).",
-        f"{ISSUE_LABELS.get(issue.get('category'), '')}: {issue.get('description', '')}" if issue else ""]))
+        f"Also reported by {employee.get('name')} ({employee.get('department') or 'no department'}).", problem]))
     saved = await servicenow.follow_incident(employee["sys_id"], ticket["sys_id"], note)
     following = employee["sys_id"] in saved.get("watch_list", [])
     draft["submitted_number"], draft["followed"] = saved["number"], True

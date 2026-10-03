@@ -3,6 +3,7 @@ photos and the requested priority.
 """
 
 import asyncio
+import json
 import logging
 
 from google.adk.tools import ToolContext
@@ -100,6 +101,7 @@ async def _file_once(tool_context: ToolContext, employee: dict, draft: dict, con
         ticket = await servicenow.create_incident(fields)
         if conversation_id:
             _FILED[conversation_id] = ticket
+        _log_path(tool_context, draft, ticket)
         # Filed: record it before anything else can fail, so a retry or a double click never
         # files twice and the user is never told it failed.
         draft["submitted_number"], draft["submitted_url"] = ticket["number"], ticket["url"]
@@ -125,6 +127,22 @@ async def _file_once(tool_context: ToolContext, employee: dict, draft: dict, con
     _show(tool_context, cards.confirmation(ticket["number"], draft))
     return {"status": "submitted", "ticket": ticket["number"], "priority": draft["assigned_priority"],
             "requested_priority": draft["priority"], "sla": draft["sla"]}
+
+
+def _log_path(tool_context: ToolContext, draft: dict, ticket: dict) -> None:
+    """One structured line per filed ticket: which path people actually take (D10). Filter in Cloud
+    Logging with jsonPayload.event="ticket_filed" or textPayload:"ticket_filed"."""
+    device, issue = draft.get("device") or {}, draft.get("issue") or {}
+    logger.info("ticket_filed %s", json.dumps({
+        "event": "ticket_filed", "ticket": ticket.get("number", ""),
+        "source": draft.get("source", "unknown"),           # tag, tag_fuzzy, description, photo_label, photo_match
+        "device_kind": device.get("kind", ""), "relation": device.get("relation", ""),
+        "issue": issue.get("category", ""), "urgency": issue.get("urgency", ""),
+        "photos": len(draft.get("photos") or []), "photo_skipped": bool(draft.get("photo_skipped")),
+        "ship_to": (draft.get("delivery") or {}).get("kind", "on_file"),
+        "display": tool_context.state.get("ui_mode", ""),
+        "priority_changed_by_servicenow": draft.get("priority", "")[:1] != str(ticket.get("priority", ""))[:1],
+    }, sort_keys=True))
 
 
 async def _after_filing(tool_context: ToolContext, employee: dict, draft: dict, ticket: dict, fields: dict,

@@ -14,6 +14,7 @@ Three things arrive in shapes the model should not get raw:
 """
 
 import base64
+import hashlib
 import json
 import logging
 import re
@@ -100,6 +101,7 @@ async def _stage_photo(encoded: str, mime: str, upload, photos: list[dict]) -> s
     except Exception as exc:  # noqa: BLE001  (storage outage, permissions)
         logger.warning("photo could not be saved: %s", type(exc).__name__)
         return "[A photo was attached but could not be saved. Ask the user to attach it again in a minute.]"
+    photo["sha256"] = hashlib.sha256(data).hexdigest()  # the same photo sent twice is read once (D12)
     photos.append(photo)
     return f"[Photo attached: {photo['photo_id']}]"
 

@@ -125,3 +125,31 @@
       expect:
         no_calls: true
         reply_contains: ["hardware"]
+
+- id: one-shot-photo-and-sentence
+  # D1: one photo plus one sentence goes straight to the review card, no questions in between.
+  turns:
+    - say: "Screen cracked on my laptop, here's the label [Photo attached: ph_label]"
+      expect:
+        calls: [analyze_photos]
+        not_calls: [submit_ticket]
+        reply_contains: ["Review your request"]
+  photo:
+    image_kind: label
+    asset_tag: "123456"
+    damage_present: true
+    damage_description: Cracked screen
+    damage_severity: severe
+    issue_category: cracked_screen
+    supports_replacement: true
+
+- id: whats-happening-digest
+  # D8: "any news" across tickets is one digest call, not a ticket-by-ticket walk.
+  tickets:
+    - number: INC0010001
+  turns:
+    - say: "Any news on my replacement?"
+      expect:
+        calls: [list_my_tickets]
+        args:
+          list_my_tickets: {latest_notes: true}

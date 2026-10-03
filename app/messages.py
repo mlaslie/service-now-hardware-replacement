@@ -49,6 +49,8 @@ DEFAULTS: dict[str, str] = {
                        "serial number, send a photo of its sticker, or just say what it is and where.",
     "picker.other_device": "Equipment or another device",
     "picker.requesting_as": "Requesting as {name} ({email})  |  {location}",
+    "admin.warning": "You're signed in to ServiceNow as an administrator ({name}), so requests are filed as that "
+                     "account. If that isn't you, reconnect ServiceNow for this agent with your own account.",
     "choices.subtitle": "Pick the one you mean, or tell me its asset tag or serial number.",
     "confirm_device.title": "Is this the right device?",
     "confirm_device.subtitle": "Please check these details against the device itself.",
@@ -62,6 +64,11 @@ DEFAULTS: dict[str, str] = {
     "reported.unassigned": "Not yet assigned",
     "reported.follow": "Add my note to {number}",
     "reported.separately": "Report separately",
+    "reported.own_title": "You already have an open ticket for this",
+    "reported.own_subtitle": "{device} has an open ticket from you. Add what's happening now to it, or file a new "
+                             "request if it's a different problem.",
+    "reported.own_add": "Add to {number}",
+    "reported.own_new": "File a new request",
 
     # Step 2: what is wrong.
     "issue.title": "What's wrong with it?",
@@ -140,6 +147,7 @@ DEFAULTS: dict[str, str] = {
     "tickets.priority": "Priority {priority}",
     "tickets.following": "Reported by {name}, you're following",
     "tickets.details": "Details",
+    "tickets.latest": "Latest: {note}",
     "tickets.more": "Showing your {count} most recent. Ask for any other ticket by its number.",
     "tickets.new_request": "Start a new request",
     "tickets.include_closed": "Include closed",

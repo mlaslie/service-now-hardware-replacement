@@ -146,3 +146,13 @@ def test_v08_translation_keeps_actions_and_text():
     button = next(p["Button"] for p in comps.values() if "Button" in p)
     assert button["action"] == {"name": "select_device",
                                 "context": [{"key": "asset_tag", "value": {"literalString": "IT-1"}}]}
+
+
+def test_an_admin_account_is_warned_on_the_first_and_last_card():
+    from app import cards
+    admin = {"name": "System Administrator", "email": "admin@example.com", "is_admin": True}
+    for msgs in (cards.device_picker(admin, []), cards.review({"device": {"model": "X"}, "issue": {}}, admin)):
+        texts = " ".join(c.get("text", "") for c in cards.components_of(msgs))
+        assert "signed in to ServiceNow as an administrator" in texts
+    plain = cards.device_picker({"name": "Jane Doe"}, [])
+    assert "administrator" not in " ".join(c.get("text", "") for c in cards.components_of(plain))

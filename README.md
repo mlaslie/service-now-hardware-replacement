@@ -122,7 +122,13 @@ world production environment.
 | [docs/INSTALL.md](docs/INSTALL.md) | Install from scratch, step by step |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it works: diagrams and a module map |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | `.env` settings and the organization profile (`config/organization.yaml`) |
+| [docs/CUSTOMIZE.md](docs/CUSTOMIZE.md) | Recipes: colour, problems, ticket fields, feature switches, wording |
 | [docs/ROLES.md](docs/ROLES.md) | ServiceNow roles, measured, and the permission checker |
+| [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | One page for end users and help desks |
+| [docs/RUNBOOK.md](docs/RUNBOOK.md), [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Operating it: routine tasks, symptom -> cause -> fix |
+| [docs/PRIVACY.md](docs/PRIVACY.md), [docs/COSTS.md](docs/COSTS.md) | What is stored where and how to delete it; what it costs and the knobs |
+| [docs/DEPLOY_OPTIONS.md](docs/DEPLOY_OPTIONS.md), [docs/CHANGELOG.md](docs/CHANGELOG.md) | Deploy choices; changes that need an operator action |
+| [docs/decisions/](docs/decisions/README.md), [docs/GLOSSARY.md](docs/GLOSSARY.md) | Why it's built this way; terms |
 | [docs/HANDOFF.md](docs/HANDOFF.md), [docs/BACKLOG.md](docs/BACKLOG.md) | Project history, decisions, what's next |
 
 ## What it does

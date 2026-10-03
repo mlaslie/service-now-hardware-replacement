@@ -172,6 +172,7 @@ async def current_user(token: str) -> dict:
         "department": rec.get("department.name", ""),
         "department_id": _value(rec.get("department")),
         **await _groups(sys_id, token),
+        "is_admin": await _is_admin(sys_id, token),
         "cost_center": " ".join(filter(None, [rec.get("cost_center.code"), rec.get("cost_center.name")])),
         "manager": rec.get("manager.name", ""),
         "location": rec.get("location.name", ""),
@@ -183,6 +184,19 @@ async def current_user(token: str) -> dict:
             _user_cache.pop(k, None)
     _user_cache[key] = (now + 300, user)
     return user
+
+
+async def _is_admin(user_sys_id: str, token: str) -> bool:
+    """True when the signed-in account has the admin role (D11): tickets would be filed as that account,
+    usually by mistake (someone authorized Gemini Enterprise with an admin account). Only an account
+    that can read role grants can see this, which is itself a sign of admin; others read False."""
+    try:
+        rows = (await _request("GET", "/api/now/table/sys_user_has_role", token=token, params={
+            "sysparm_query": f"user={user_sys_id}^role.name=admin", "sysparm_fields": "sys_id", "sysparm_limit": 1,
+        })).get("result", [])
+    except ServiceNowError:
+        return False
+    return bool(rows)
 
 
 async def _groups(user_sys_id: str, token: str) -> dict:

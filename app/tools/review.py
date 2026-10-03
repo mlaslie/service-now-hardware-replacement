@@ -128,13 +128,15 @@ async def _next_step(ctx: ToolContext, draft: dict, employee: dict) -> dict:
             result["next"] = ("If the user's message already said what is wrong, call set_issue now, in this "
                               "turn: it is kept while they check the device. Never call confirm_device yourself.")
         return result
-    if cards.is_equipment(device) and device.get("ci") and not draft.get("duplicates_checked") \
-            and PROFILE.features.follow_open_tickets:
+    if device.get("ci") and not draft.get("duplicates_checked") and PROFILE.features.follow_open_tickets:
         draft["duplicates_checked"] = True
         _save(ctx, draft)
         existing = await servicenow.open_incidents_for_ci(device["ci"])
+        own = not cards.is_equipment(device)
+        if own:  # a personal device: only the user's own open ticket for it (D9)
+            existing = [t for t in existing if t.get("caller_id") == employee.get("sys_id")]
         if existing:
-            _show(ctx, cards.existing_tickets(device, existing))
+            _show(ctx, cards.existing_tickets(device, existing, own=own))
             return {"status": "ok", "step": "already_reported",
                     "open_tickets": [{k: t[k] for k in ("number", "state", "short_description", "caller")}
                                      for t in existing]}
