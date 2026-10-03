@@ -55,22 +55,25 @@ H0.6 also needs the create script re-run in ServiceNow (elevated).**
 - [x] H1.13 Ship-to change on a ticket without a Ship-to line (equipment, or description dropped) is reported as
   "ServiceNow policy", and the note says "changed" even when it wasn't.
 
-### H2. Lower priority (P2)
-- [ ] "Suite 200" treated as a temporary address (office addresses never saved).
-- [ ] `normalize_address` drops non-ASCII letters (non-Latin addresses collide).
-- [ ] Memory recall slices before filtering out delivery memories.
-- [ ] Device/group/ticket lists truncate silently (20/50/10).
-- [ ] Notes fallback sorted on display strings.
-- [ ] ServiceNow text not markdown-escaped in mobile text mode (links/images in notes render).
-- [ ] JWT-shaped ServiceNow access tokens rejected by `identity.bearer()` (check `iss`, not dots).
-- [ ] Photo-label device match skips the "is this the right device?" confirmation.
-- [ ] Same issue key in both groups: equipment settings ignored.
-- [ ] Logs: user email and full request metadata at INFO.
-- [ ] One shared `httpx.AsyncClient`; evict `_user_cache`.
-- [ ] Container runs as root (add `USER`).
-- [ ] `sn_doctor`: temp user created outside `try`; cleanup deletes unchecked; end impersonation explicitly.
-- [ ] `sn_seed` token cache briefly world-readable; `chat.py` takes tokens as CLI args.
-- [ ] Personal identifiers in tracked docs (`HANDOFF.md`, `BACKLOG.md`, `CLAUDE.md`, one screenshot) and in
+### H2. Lower priority (P2): **done 2026-10-03 except the decision below**
+Truncation: ticket list says when there are more; group memberships read up to 500; device list stays at 20.
+- [x] "Suite 200" treated as a temporary address (office addresses never saved).
+- [x] `normalize_address` drops non-ASCII letters (non-Latin addresses collide).
+- [x] Memory recall slices before filtering out delivery memories.
+- [x] Device/group/ticket lists truncate silently (20/50/10).
+- [x] Notes fallback sorted on display strings.
+- [x] ServiceNow text not markdown-escaped in mobile text mode (links/images in notes render).
+- [x] JWT-shaped ServiceNow access tokens rejected by `identity.bearer()` (check `iss`, not dots).
+- [x] Photo-label device match skips the "is this the right device?" confirmation. **Kept by design:** an exact
+  asset-tag or serial match from inventory goes straight on; the review card shows model, tag and serial before
+  submit, and a fuzzy match (model only) still asks. Fewer steps on the happy path (D1).
+- [x] Same issue key in both groups: equipment settings ignored.
+- [x] Logs: user email and full request metadata at INFO.
+- [x] One shared `httpx.AsyncClient`; evict `_user_cache`.
+- [x] Container runs as root (add `USER`).
+- [x] `sn_doctor`: temp user created outside `try`; cleanup deletes unchecked; end impersonation explicitly.
+- [x] `sn_seed` token cache briefly world-readable; `chat.py` takes tokens as CLI args.
+- [ ] **Needs your decision.** Personal identifiers in tracked docs (`HANDOFF.md`, `BACKLOG.md`, `CLAUDE.md`, one screenshot) and in
   git history of `demo/DEMO.html` (needs a history rewrite to remove; repo is private).
 
 ### H3. Test gaps (P1)

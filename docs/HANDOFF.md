@@ -185,7 +185,7 @@ uv run --group seed pytest                      # everything: 48 tests
 - Logs: `gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="hardware-replacement-agent"' --project PROJECT_ID --freshness=1h`.
   Useful lines: `turn start`, `resolved end user`, `notes from …`, `priority N requested, ServiceNow assigned M`.
 - Agent card JSON: `curl -s -H "Authorization: Bearer $(gcloud auth print-identity-token)" <service URL>/.well-known/agent-card.json`
-- Local A2A client: `uv run python scripts/chat.py --url <service URL> --token "$(gcloud auth print-identity-token)" --user-token <SN token>`.
+- Local A2A client: `CHAT_ID_TOKEN="$(gcloud auth print-identity-token)" CHAT_USER_TOKEN=<SN token> uv run python scripts/chat.py --url <service URL>`.
   Without a user token the agent answers as anonymous, which is expected.
 - Seed tool (see README): `uv run --group seed python seed/sn_seed.py login | set <users.json> | report | clear-tickets [--yes] | reset [--user X] [--yes] [--memory]`.
   `set` also creates the hospital equipment in `seed/equipment.json`. Between demo runs use `clear-tickets --yes`.

@@ -5,7 +5,7 @@ photos as inline base64 wrapped in upload sentinels, button clicks as A2UI
 A2UI v0.9 action DataParts) and prints cards as text.
 
     uv run python scripts/chat.py                       # local server, interactive
-    uv run python scripts/chat.py --url https://...run.app --token "$(gcloud auth print-identity-token)"
+    CHAT_ID_TOKEN="$(gcloud auth print-identity-token)" uv run python scripts/chat.py --url https://...run.app
 
 In the prompt:
     any text                      send a message
@@ -18,6 +18,7 @@ import argparse
 import base64
 import json
 import mimetypes
+import os
 import sys
 import uuid
 
@@ -84,15 +85,21 @@ def stream(client: httpx.Client, url: str, headers: dict, message: dict) -> list
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default="http://localhost:8080")
-    ap.add_argument("--token", help="identity token for Cloud Run IAM (x-serverless-authorization)")
-    ap.add_argument("--user-token", help="end-user ServiceNow OAuth token (Authorization), as GE forwards it")
+    # Tokens come from the environment, not arguments: arguments end up in shell history and `ps`.
+    ap.add_argument("--token", help="deprecated: set CHAT_ID_TOKEN instead")
+    ap.add_argument("--user-token", help="deprecated: set CHAT_USER_TOKEN instead")
     args = ap.parse_args()
+    id_token = os.environ.get("CHAT_ID_TOKEN") or args.token  # Cloud Run IAM (x-serverless-authorization)
+    user_token = os.environ.get("CHAT_USER_TOKEN") or args.user_token  # ServiceNow OAuth token, as GE forwards it
+    if args.token or args.user_token:
+        print("note: pass tokens as CHAT_ID_TOKEN / CHAT_USER_TOKEN environment variables instead of arguments",
+              file=sys.stderr)
 
     headers = {}
-    if args.token:
-        headers["X-Serverless-Authorization"] = f"Bearer {args.token}"
-    if args.user_token:
-        headers["Authorization"] = f"Bearer {args.user_token}"
+    if id_token:
+        headers["X-Serverless-Authorization"] = f"Bearer {id_token}"
+    if user_token:
+        headers["Authorization"] = f"Bearer {user_token}"
     url = args.url.rstrip("/") + "/"
     context_id = str(uuid.uuid4())
     buttons: list[dict] = []

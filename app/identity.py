@@ -11,6 +11,8 @@ answers for a valid token, and says whose it is. No audience check is needed,
 because a token from any other system simply fails against ServiceNow.
 """
 
+import base64
+import json
 import logging
 from dataclasses import asdict, dataclass, field
 
@@ -56,9 +58,24 @@ def bearer(headers: dict) -> str | None:
     if not value or not value.lower().startswith("bearer "):
         return None
     token = value.split(" ", 1)[1].strip()
-    # A three-segment JWT here would be a Google service identity, not the
-    # user's ServiceNow token.
-    return token if token and token.count(".") != 2 else None
+    # A Google-issued JWT here is a service identity (Cloud Run invoker), not the user's ServiceNow
+    # token. ServiceNow can itself issue JWT access tokens, so check the issuer, not the shape.
+    return token if token and not _google_jwt(token) else None
+
+
+_GOOGLE_ISSUERS = ("accounts.google.com", "https://accounts.google.com", "googleapis.com")
+
+
+def _google_jwt(token: str) -> bool:
+    parts = token.split(".")
+    if len(parts) != 3:
+        return False
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4)))
+    except (ValueError, TypeError):
+        return True  # three segments but not a readable JWT: not a ServiceNow token either
+    issuer = str(payload.get("iss", "")) if isinstance(payload, dict) else ""
+    return any(issuer == g or issuer.endswith(g) for g in _GOOGLE_ISSUERS)
 
 
 async def resolve_end_user(token: str | None) -> EndUser:

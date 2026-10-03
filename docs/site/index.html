@@ -576,7 +576,7 @@ uv run python -m app.profile</pre></div>
         <p>In Gemini Enterprise, open the agent, send <em>"my laptop screen is cracked"</em>, click <strong>Authorize</strong>, sign in to ServiceNow as yourself,
           answer <strong>2</strong> (desktop). You should see your devices. From a terminal (answers as anonymous without a user token):</p>
         <div class="cmd-wrap"><div class="cmd-head"><span>shell</span><button class="copy" type="button">Copy</button></div>
-<pre class="cmd">uv run python scripts/chat.py --url {SERVICE_URL} --token "$(gcloud auth print-identity-token)"</pre></div>
+<pre class="cmd">CHAT_ID_TOKEN="$(gcloud auth print-identity-token)" uv run python scripts/chat.py --url {SERVICE_URL}</pre></div>
         <p>Logs (<a class="ext" href="https://docs.cloud.google.com/run/docs/logging" target="_blank" rel="noopener">Cloud Run logging</a>,
           <a class="ext" href="https://docs.cloud.google.com/logging/docs/view/logging-query-language" target="_blank" rel="noopener">query language</a>):</p>
         <div class="cmd-wrap"><div class="cmd-head"><span>shell</span><button class="copy" type="button">Copy</button></div>

@@ -171,3 +171,12 @@ def test_literal_braces_are_allowed(tmp_path):
     data["servicenow"]["ticket_fields"] = {"u_note": "{{fixed}} {device_type}"}
     rendered = profile.load(_write(tmp_path, data)).servicenow.render_fields({"device_type": "laptop"})
     assert rendered["u_note"] == "{fixed} laptop"
+
+
+def test_a_key_in_both_lists_must_mean_the_same(tmp_path):
+    data = _hospital()
+    shared = dict(data["issues"]["equipment"][0])
+    shared.update(safety=False, min_urgency="low")
+    data["issues"]["personal"].append(shared)
+    with pytest.raises(profile.ProfileError, match="different"):
+        profile.load(_write(tmp_path, data))

@@ -316,14 +316,15 @@ def _query_words(description: str) -> list[str]:
 # permanent address (verbatim, from memory.saved_addresses), or one the user typed.
 # Temporary places (hotels, events) are used once and never saved or suggested.
 
-_TEMPORARY = re.compile(r"\b(hotel|motel|inn|suites?|resort|lodge|marriott|hilton|hyatt|sheraton|westin|airbnb|"
+_TEMPORARY = re.compile(r"\b(hotel|motel|inn|suites|resort|lodge|marriott|hilton|hyatt|sheraton|westin|airbnb|"
                         r"conference|convention|event|airport|temporary|temp)\b", re.I)
 _ADDRESS_ON_FILE = re.compile(r"\b(usual|default|on file|servicenow|original|regular|normal)\b", re.I)
 _PLACE_ALIASES = {"home": ("home", "house", "my place", "apartment", "residence"), "office": ("office", "work")}
 
 
 def _looks_like_street_address(text: str) -> bool:
-    return bool(re.search(r"\d", text)) and len(text.split()) >= 3
+    # Most scripts separate words; Chinese and Japanese addresses don't ("東京都港区芝公園1-2-3").
+    return bool(re.search(r"\d", text)) and (len(text.split()) >= 3 or (len(text) >= 8 and not text.isascii()))
 
 
 def _has_phrase(text: str, phrase: str) -> bool:
@@ -1125,11 +1126,14 @@ async def list_my_tickets(tool_context: ToolContext, include_closed: bool = Fals
     employee = await _employee(tool_context)
     if not employee:
         return _no_identity(tool_context)
-    tickets = await servicenow.my_incidents(employee["sys_id"], active_only=not include_closed)
+    shown = 10
+    tickets = await servicenow.my_incidents(employee["sys_id"], active_only=not include_closed, limit=shown + 1)
+    more = len(tickets) > shown
+    tickets = tickets[:shown]
     for t in tickets:
         t["following"] = bool(t.get("caller_id")) and t["caller_id"] != employee["sys_id"]
-    _show(tool_context, cards.ticket_list(tickets, include_closed))
-    return {"status": "ok", "count": len(tickets),
+    _show(tool_context, cards.ticket_list(tickets, include_closed, more))
+    return {"status": "ok", "count": len(tickets), "more": more,
             "tickets": [{k: t[k] for k in ("number", "short_description", "state", "priority")} for t in tickets]}
 
 

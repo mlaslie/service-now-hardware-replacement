@@ -135,7 +135,7 @@ In Gemini Enterprise, open the agent, send "my laptop screen is cracked", click 
 sign in to ServiceNow as yourself, answer **2** (desktop). You should see your devices.
 From a terminal (no Gemini Enterprise needed; answers as "anonymous" without a user token):
 ```bash
-uv run python scripts/chat.py --url https://SERVICE_NAME-PROJECT_NUMBER.REGION.run.app --token "$(gcloud auth print-identity-token)"
+CHAT_ID_TOKEN="$(gcloud auth print-identity-token)" uv run python scripts/chat.py --url https://SERVICE_NAME-PROJECT_NUMBER.REGION.run.app
 ```
 Logs: [Cloud Run logging](https://docs.cloud.google.com/run/docs/logging),
 ```bash

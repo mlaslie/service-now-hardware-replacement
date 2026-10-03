@@ -12,6 +12,7 @@ import functools
 import json
 import logging
 import re
+import unicodedata
 import warnings
 
 from google.adk.tools import ToolContext
@@ -47,10 +48,12 @@ async def recall(ctx: ToolContext, email: str, limit: int = 8) -> list[str]:
         logger.warning("memory recall failed: %s", type(exc).__name__)
         return []
     facts = []
-    for memory in result.memories[:limit]:
+    for memory in result.memories:
         text = " ".join(p.text for p in (memory.content.parts or []) if p.text).strip()
         if text and not _DELIVERY_WORDS.search(text):  # addresses come from saved_addresses()
             facts.append(text)
+        if len(facts) >= limit:  # filter first: delivery memories rank high for this query
+            break
     return facts
 
 
@@ -68,7 +71,9 @@ def _engine() -> str:
 
 
 def normalize_address(address: str) -> str:
-    return " ".join(re.sub(r"[^a-z0-9 ]", " ", (address or "").lower()).split())
+    """For comparing addresses: case, punctuation and spacing ignored; letters of any script kept
+    ("東京都港区1-2-3" and "大阪府北区1-2-3" stay different, "Élysées" stays "élysées")."""
+    return " ".join(re.sub(r"[\W_]+", " ", unicodedata.normalize("NFC", address or "").casefold()).split())
 
 
 def _list_addresses(email: str) -> list[dict]:

@@ -79,8 +79,17 @@ class Admin:
         r.raise_for_status()
         return r.json()["result"]
 
-    def delete(self, table: str, sys_id: str) -> None:
-        self.http.delete(f"/api/now/table/{table}/{sys_id}")
+    def delete(self, table: str, sys_id: str) -> bool:
+        """Best-effort cleanup, but never silent: a record left behind is printed."""
+        try:
+            r = self.http.delete(f"/api/now/table/{table}/{sys_id}")
+            ok = r.status_code in (200, 204, 404)
+        except httpx.HTTPError as exc:
+            ok, r = False, exc
+        if not ok:
+            print(f"  ! could not delete {table}/{sys_id} ({getattr(r, 'status_code', type(r).__name__)}); "
+                  "remove it by hand", file=sys.stderr)
+        return ok
 
     def impersonate(self, user_sys_id: str) -> httpx.Client:
         """A cookie session that acts as the user. The admin token only starts it."""
@@ -165,6 +174,10 @@ class Doctor:
             else:
                 self._tickets(s, user, rep)
         finally:
+            try:
+                s.get("/logout.do")  # end the impersonated session on the server, not just locally
+            except httpx.HTTPError:
+                pass
             s.close()
             for table, sys_id in reversed(self.cleanup):
                 self.admin.delete(table, sys_id)
@@ -344,6 +357,15 @@ def temp_user(admin: Admin, doctor: Doctor, label: str, roles: list[str]) -> dic
         "user_name": f"sn.doctor.{suffix}", "first_name": "SN Doctor", "last_name": label[:40],
         "email": f"sn.doctor.{suffix}@example.invalid", "department": doctor.asset.get("department", ""),
         "location": loc, "active": "true"})
+    try:
+        _equip_temp_user(admin, doctor, user, roles, suffix)
+    except BaseException:
+        drop_user(admin, user)  # never leave a user with roles behind
+        raise
+    return user
+
+
+def _equip_temp_user(admin: Admin, doctor: Doctor, user: dict, roles: list[str], suffix: str) -> None:
     for role in roles:
         rid = next(iter(admin.query("sys_user_role", f"name={role}")), {}).get("sys_id")
         if rid:
@@ -354,7 +376,6 @@ def temp_user(admin: Admin, doctor: Doctor, label: str, roles: list[str]) -> dic
                                   "install_status": "1", "comments": MARK})
     if doctor.asset.get("support_group"):
         admin.create("sys_user_grmember", {"user": user["sys_id"], "group": doctor.asset["support_group"]})
-    return user
 
 
 def drop_user(admin: Admin, user: dict) -> None:

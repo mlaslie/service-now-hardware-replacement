@@ -63,15 +63,23 @@ class Issues(_Strict):
 
     @model_validator(mode="after")
     def _keys(self):
-        seen: dict[str, str] = {}
+        seen: dict[str, dict] = {}
         for group in ("personal", "equipment"):
             keys = [i.key for i in getattr(self, group)]
             dupes = {k for k in keys if keys.count(k) > 1}
             if dupes:
                 raise ValueError(f"issues.{group}: duplicate keys {sorted(dupes)}")
             for issue in getattr(self, group):
-                if seen.setdefault(issue.key, issue.label) != issue.label:
+                # One key is one problem: the agent looks rules up by key, so a key in both lists
+                # must mean the same thing in both ("replace" only applies to personal devices).
+                rules = issue.model_dump(exclude={"replace"})
+                first = seen.setdefault(issue.key, rules)
+                if first["label"] != rules["label"]:
                     raise ValueError(f"issue {issue.key!r} has different labels in personal and equipment")
+                differ = sorted(k for k in rules if rules[k] != first[k])
+                if differ:
+                    raise ValueError(f"issue {issue.key!r} has different {differ} in personal and equipment; "
+                                     "use the same settings, or a different key")
         return self
 
 

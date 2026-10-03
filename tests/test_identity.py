@@ -10,6 +10,20 @@ def test_bearer_ignores_service_jwts():
     assert identity.bearer({"authorization": "Bearer a.b.c"}) is None
 
 
+def _jwt(payload):
+    import base64
+    import json
+    enc = lambda d: base64.urlsafe_b64encode(json.dumps(d).encode()).decode().rstrip("=")  # noqa: E731
+    return f"{enc({'alg': 'RS256'})}.{enc(payload)}.sig"
+
+
+def test_bearer_keeps_servicenow_jwts_but_not_googles():
+    sn = _jwt({"iss": "https://example.service-now.com", "sub": "jane"})
+    assert identity.bearer({"authorization": f"Bearer {sn}"}) == sn
+    for iss in ("https://accounts.google.com", "accounts.google.com"):
+        assert identity.bearer({"authorization": f"Bearer {_jwt({'iss': iss})}"}) is None
+
+
 async def test_user_comes_from_servicenow(monkeypatch):
     async def fake_current_user(token):
         assert token == "tok"

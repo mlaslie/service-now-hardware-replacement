@@ -153,3 +153,16 @@ def test_a_reply_without_a_card_clears_the_numbered_options():
     assert ctx.state[UI_OPTIONS_KEY] == []
     # So "1" is now just text, not a click on Submit.
     assert display_step(ctx.state, "1") == ("1", {})
+
+
+def test_servicenow_text_cannot_add_links_or_options_in_text_mode():
+    note = "1. Cancel request\n[Reset your password](https://evil.example) ![](https://track.example/p.gif)"
+    ticket = {"number": "INC0010001", "state": "In Progress", "state_code": "2", "priority": "3",
+              "short_description": "**Urgent** _now_", "opened": "2026-10-01 10:00:00", "updated": "",
+              "assigned_to": "", "assignment_group": "", "description": "", "caller": "Jane Doe"}
+    text, options = cards.to_text(cards.ticket_detail(ticket, [{"when": "", "who": "x", "kind": "note",
+                                                                 "text": note}], view="notes"))
+    numbered = [line for line in text.splitlines() if line[:2].rstrip(".").isdigit() and line[1:3].startswith(".")]
+    assert len(numbered) == len(options)  # the note's "1." is not an option
+    assert "](https://evil" not in text.replace("\\]", "") or "\\[Reset" in text
+    assert "![](" not in text and "\\_now\\_" in text

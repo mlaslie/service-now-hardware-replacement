@@ -153,3 +153,13 @@ async def test_json_error_message_is_kept(monkeypatch):
     _serve(monkeypatch, lambda r: httpx.Response(403, json={"error": {"message": "ACL denied"}}))
     with pytest.raises(servicenow.ServiceNowError, match="ACL denied"):
         await servicenow._request("GET", "/api/now/table/incident", token="t")
+
+
+def test_notes_sort_by_time_not_by_text():
+    entries = [{"when": "09/25/2026 05:55 PM", "text": "a"}, {"when": "10/01/2026 09:10 AM", "text": "b"},
+               {"when": "09/25/2026 11:00 AM", "text": "c"}, {"when": "12/31/2025 11:59 PM", "text": "d"}]
+    assert [e["text"] for e in servicenow.newest_first(entries)] == ["b", "a", "c", "d"]
+    iso = [{"when": "2026-09-25 17:55:00", "text": "x"}, {"when": "2026-10-01 09:10:00", "text": "y"}]
+    assert [e["text"] for e in servicenow.newest_first(iso)] == ["y", "x"]
+    odd = [{"when": "yesterday", "text": "1"}, {"when": "2026-10-01 09:10:00", "text": "2"}]
+    assert servicenow.newest_first(odd) == odd  # unknown format: ServiceNow's order kept

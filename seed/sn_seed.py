@@ -104,10 +104,13 @@ def load_client() -> OAuthClient:
 
 
 def _save_token(tok: dict) -> None:
-    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     tok["expires_at"] = time.time() + int(tok.get("expires_in", 1800)) - 60
-    TOKEN_FILE.write_text(json.dumps(tok))
-    TOKEN_FILE.chmod(0o600)
+    # Created private: never readable by others, even for a moment.
+    fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(json.dumps(tok))
+    TOKEN_FILE.chmod(0o600)  # an older file created with wider permissions
 
 
 def login(client: OAuthClient) -> None:

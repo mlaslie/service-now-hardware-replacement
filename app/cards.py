@@ -396,7 +396,7 @@ def confirmation(number: str, draft: dict) -> list[dict]:
 # --- Existing tickets ------------------------------------------------------------------
 
 
-def ticket_list(tickets: list[dict], include_closed: bool) -> list[dict]:
+def ticket_list(tickets: list[dict], include_closed: bool, more: bool = False) -> list[dict]:
     c = Card()
     title = "Your hardware tickets" if include_closed else "Your open hardware tickets"
     kids = c.header(None, title)
@@ -412,6 +412,9 @@ def ticket_list(tickets: list[dict], include_closed: bool) -> list[dict]:
                      f"Reported by {t.get('caller') or 'someone else'}, you're following" if t.get("following") else ""])),
                      "caption"),
                  c.button("Details", "view_ticket", {"number": t["number"]})]
+    if more:
+        kids += [c.divider(), c.text(f"Showing your {len(tickets)} most recent. Ask for any other ticket by its number.",
+                                     "caption")]
     buttons = [c.button("Start a new request", "start_over")]
     if not include_closed:
         buttons.insert(0, c.button("Include closed", "list_all_tickets", primary=False))
@@ -496,6 +499,18 @@ def intro_of(messages: list[dict]) -> str:
 # --- Text rendering (Gemini Enterprise mobile app: no A2UI) ------------------------
 
 
+_MD_INLINE = re.compile(r"([\\`*_\[\]<>!|~])")
+_MD_LINE_START = re.compile(r"^(\s*)(\d+)([.)])|^(\s*)([#>+\-])", re.M)
+
+
+def md_escape(text: str) -> str:
+    """Text from ServiceNow or the user, shown as markdown in the mobile app: shown literally, so a
+    note can't add links, images, emphasis, or a fake numbered option ("1. Cancel request")."""
+    text = _MD_INLINE.sub(r"\\\1", text)
+    return _MD_LINE_START.sub(lambda m: f"{m.group(1)}{m.group(2)}\\{m.group(3)}" if m.group(2)
+                              else f"{m.group(4)}\\{m.group(5)}", text)
+
+
 def to_text(messages: list[dict]) -> tuple[str, list[dict]]:
     """Renders a card as markdown text with numbered options, for clients that
     can't show A2UI (the Gemini Enterprise mobile app). Returns the text and the
@@ -512,7 +527,7 @@ def to_text(messages: list[dict]) -> tuple[str, list[dict]]:
 
     def text_of(cid: str) -> str:
         comp = by_id.get(cid, {})
-        return str(comp.get("text", "")).strip() if comp.get("component") == "Text" else ""
+        return md_escape(str(comp.get("text", "")).strip()) if comp.get("component") == "Text" else ""
 
     def walk(cid: str) -> None:
         props = by_id.get(cid, {})

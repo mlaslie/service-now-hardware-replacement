@@ -207,7 +207,7 @@ cp .env.example .env        # fill in the required values
 uv sync
 uv run --group seed pytest
 uv run uvicorn app.server:app --port 8080
-uv run python scripts/chat.py --user-token "<servicenow access token>"
+CHAT_USER_TOKEN="<servicenow access token>" uv run python scripts/chat.py
 ```
 
 `chat.py` is an A2A client that behaves like Gemini Enterprise: type text,

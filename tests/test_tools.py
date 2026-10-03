@@ -62,3 +62,43 @@ def test_extracted_delivery_memories_are_not_shown():
     from app import memory
     assert memory._DELIVERY_WORDS.search("Last time the laptop was shipped to a Marriott hotel in Chicago")
     assert not memory._DELIVERY_WORDS.search("Prefers to be contacted by text message")
+
+
+def test_addresses_in_any_script_stay_distinct():
+    from app import memory
+    n = memory.normalize_address
+    assert n("東京都港区1-2-3") != n("大阪府北区1-2-3")
+    assert n("8 Avenue des Champs-Élysées, Paris") == n("8 avenue des champs élysées paris")
+    assert n("742 Evergreen Terrace, Kansas City") == n("742  EVERGREEN TERRACE kansas city")
+
+
+def test_a_suite_is_an_office_not_a_hotel():
+    from app import tools
+    assert not tools._TEMPORARY.search("100 Main St Suite 200, Denver, CO 80202")
+    assert tools._TEMPORARY.search("Embassy Suites, 1 Hotel Way") and tools._TEMPORARY.search("Hilton Downtown")
+
+
+def test_unsegmented_addresses_are_addresses():
+    from app import tools
+    assert tools._looks_like_street_address("東京都港区芝公園1-2-3")
+    assert not tools._looks_like_street_address("my house") and not tools._looks_like_street_address("Room 12")
+
+
+async def test_recall_filters_before_limiting(monkeypatch):
+    from types import SimpleNamespace
+
+    from app import memory
+
+    def mem(text):
+        return SimpleNamespace(content=SimpleNamespace(parts=[SimpleNamespace(text=text)]))
+
+    deliveries = [mem(f"Shipped to the hotel in city {i}") for i in range(10)]
+    service = SimpleNamespace(search_memory=None)
+
+    async def search_memory(**kw):
+        return SimpleNamespace(memories=deliveries + [mem("Prefers text messages"), mem("Has a MacBook Air")])
+
+    service.search_memory = search_memory
+    monkeypatch.setattr(memory, "_service", lambda ctx: service)
+    facts = await memory.recall(SimpleNamespace(), "jane.doe@example.com")
+    assert facts == ["Prefers text messages", "Has a MacBook Air"]

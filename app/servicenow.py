@@ -19,6 +19,7 @@ Engineering, the IT Service Desk).
 """
 
 import contextvars
+import datetime
 import hashlib
 import logging
 import re
@@ -176,7 +177,11 @@ async def current_user(token: str) -> dict:
         "location": rec.get("location.name", ""),
         "location_address": address,
     }
-    _user_cache[key] = (time.monotonic() + 300, user)
+    now = time.monotonic()
+    if len(_user_cache) > 200:  # each token refresh is a new key: drop expired entries
+        for k in [k for k, (expires, _) in _user_cache.items() if expires <= now]:
+            _user_cache.pop(k, None)
+    _user_cache[key] = (now + 300, user)
     return user
 
 
@@ -185,7 +190,7 @@ async def _groups(user_sys_id: str, token: str) -> dict:
     Empty if ServiceNow doesn't let the user read memberships."""
     try:
         rows = (await _request("GET", "/api/now/table/sys_user_grmember", token=token, params={
-            "sysparm_query": f"user={user_sys_id}", "sysparm_fields": "group,group.name", "sysparm_limit": 50,
+            "sysparm_query": f"user={user_sys_id}", "sysparm_fields": "group,group.name", "sysparm_limit": 500,
         })).get("result", [])
     except ServiceNowError as exc:
         logger.info("group memberships not readable: %s", exc)
@@ -507,7 +512,30 @@ async def notes(incident_sys_id: str) -> list[dict]:
                     len(entries), len(rec.get("comments") or ""), len(rec.get("work_notes") or ""))
     else:
         logger.info("notes from journal table: %d", len(entries))
-    return sorted(entries, key=lambda e: e["when"], reverse=True)
+    return newest_first(entries)
+
+
+_NOTE_TIME_FORMATS = ("%Y-%m-%d %H:%M:%S", "%m/%d/%Y %I:%M:%S %p", "%m/%d/%Y %I:%M %p", "%m/%d/%Y %H:%M:%S",
+                      "%d/%m/%Y %H:%M:%S", "%d-%m-%Y %H:%M:%S", "%Y-%m-%d %I:%M:%S %p", "%d.%m.%Y %H:%M:%S")
+
+
+def _note_time(when: str):
+    for fmt in _NOTE_TIME_FORMATS:
+        try:
+            return datetime.datetime.strptime((when or "").strip(), fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def newest_first(entries: list[dict]) -> list[dict]:
+    """By time, newest first. Display formats ("09/25/2026 05:55 PM") don't sort as text, so times
+    are parsed; if any can't be, ServiceNow's own order (newest first per field) is kept."""
+    times = [_note_time(e.get("when", "")) for e in entries]
+    if None in times:
+        return list(entries)
+    order = sorted(range(len(entries)), key=lambda i: times[i], reverse=True)
+    return [entries[i] for i in order]
 
 
 async def attach(table_sys_id: str, filename: str, data: bytes, mime_type: str) -> None:
