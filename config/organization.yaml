@@ -136,6 +136,8 @@ service:
   safety_text: >-
     If it is safe to do so, take it out of service now and tag it "Do not use". If a patient or
     staff member was harmed, also follow your safety event reporting process.
+  # Where staff report a safety event (harm to a patient or staff), shown with safety concerns.
+  # safety_event_url: https://safety.example.org/report
   # Recommendation texts on the review card and ticket. {cost_center} is filled in.
   recommendations:
     equipment_repair: On-site repair

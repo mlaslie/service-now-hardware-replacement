@@ -156,3 +156,14 @@ def test_an_admin_account_is_warned_on_the_first_and_last_card():
         assert "signed in to ServiceNow as an administrator" in texts
     plain = cards.device_picker({"name": "Jane Doe"}, [])
     assert "administrator" not in " ".join(c.get("text", "") for c in cards.components_of(plain))
+
+
+def test_safety_concern_links_the_safety_event_report(monkeypatch):
+    from app import cards
+    monkeypatch.setattr(cards.PROFILE.service, "safety_event_url", "https://safety.example.org/report")
+    draft = {"device": {"model": "SIGNA", "kind": "clinical"}, "issue": {"category": "safety_concern"}}
+    for msgs in (cards.review(draft, {}), cards.confirmation("INC1", draft)):
+        texts = " ".join(c.get("text", "") for c in cards.components_of(msgs))
+        assert "https://safety.example.org/report" in texts
+    plain = cards.review({"device": {"model": "SIGNA", "kind": "clinical"}, "issue": {"category": "not_working"}}, {})
+    assert "safety.example.org" not in " ".join(c.get("text", "") for c in cards.components_of(plain))

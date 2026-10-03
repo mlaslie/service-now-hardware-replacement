@@ -163,3 +163,11 @@ def test_notes_sort_by_time_not_by_text():
     assert [e["text"] for e in servicenow.newest_first(iso)] == ["y", "x"]
     odd = [{"when": "yesterday", "text": "1"}, {"when": "2026-10-01 09:10:00", "text": "2"}]
     assert servicenow.newest_first(odd) == odd  # unknown format: ServiceNow's order kept
+
+
+def test_category_types_override_the_guess(monkeypatch):
+    assert servicenow._device_type("Computer", "Dell OptiPlex 7090") == "desktop"
+    monkeypatch.setattr(servicenow.PROFILE.devices, "category_types", {"Computer": "laptop", "Handheld": "phone"})
+    assert servicenow._device_type("computer", "Dell OptiPlex 7090") == "laptop"
+    assert servicenow._device_type("Handheld", "Zebra TC52") == "phone"
+    assert servicenow._device_type("Printer", "HP LaserJet") == "other"  # not listed: guessed

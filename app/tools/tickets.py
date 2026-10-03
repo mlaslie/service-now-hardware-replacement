@@ -373,6 +373,33 @@ async def follow_ticket(number: str, tool_context: ToolContext) -> dict:
 
 
 @servicenow_errors
+async def unfollow_ticket(number: str, tool_context: ToolContext) -> dict:
+    """Stops following a ticket someone else reported ("stop following INC..."): the user no longer
+    gets its updates or sees it in their tickets. Their own tickets can't be unfollowed (cancel instead).
+
+    Args:
+        number: The incident number.
+    """
+    employee, ticket = await _own_ticket(tool_context, number)
+    if not employee:
+        return ticket
+    if not ticket.get("caller_id") or ticket["caller_id"] == employee["sys_id"]:
+        return {"status": "error", "message": f"{number} is the user's own ticket, so there is nothing to unfollow. "
+                "Offer to cancel it instead if they no longer need it."}
+    saved = await servicenow.unfollow_incident(employee["sys_id"], ticket["sys_id"])
+    if employee["sys_id"] in saved.get("watch_list", []):
+        await servicenow.update_incident(employee["sys_id"], number, {
+            "comments": f"{employee.get('name') or 'A follower'} asked to stop following this ticket."})
+        return {"status": "not_permitted", "message": "ServiceNow didn't let the account change the followers; "
+                "a note asks the service desk to remove them."}
+    tickets = await servicenow.my_incidents(employee["sys_id"])
+    for t in tickets:
+        t["following"] = bool(t.get("caller_id")) and t["caller_id"] != employee["sys_id"]
+    _show(tool_context, cards.ticket_list(tickets, False))
+    return {"status": "ok", "unfollowed": number}
+
+
+@servicenow_errors
 async def report_separately(tool_context: ToolContext) -> dict:
     """The user wants their own ticket even though the equipment already has an open one."""
     employee = await _employee(tool_context)

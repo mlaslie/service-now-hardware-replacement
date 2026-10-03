@@ -221,8 +221,12 @@ _LAPTOP_NAMES = ("macbook", "thinkpad", "latitude", "elitebook", "probook", "xps
 
 
 def _device_type(category: str, name: str) -> str:
-    """ServiceNow's demo data files laptops under the generic "Computer"
-    category, so the model name decides laptop vs desktop."""
+    """The profile's devices.category_types decides when it lists the model category. Otherwise a
+    guess: ServiceNow's demo data files laptops under the generic "Computer" category, so the model
+    name decides laptop vs desktop."""
+    mapped = {k.lower(): v for k, v in PROFILE.devices.category_types.items()}.get(category.lower())
+    if mapped:
+        return mapped
     category, name = category.lower(), name.lower()
     if any(w in category for w in ("laptop", "notebook")) or any(w in name for w in _LAPTOP_NAMES):
         return "laptop"
@@ -406,6 +410,17 @@ async def follow_incident(user_sys_id: str, sys_id: str, note: str) -> dict:
     if user_sys_id not in watchers:
         fields["watch_list"] = ",".join(watchers + [user_sys_id])
     result = await _request("PATCH", f"/api/now/table/incident/{sys_id}", json=fields,
+                            params={"sysparm_fields": _INCIDENT_FIELDS, "sysparm_display_value": "false"})
+    return _incident(result["result"])
+
+
+async def unfollow_incident(user_sys_id: str, sys_id: str) -> dict:
+    """Takes the user off a ticket's watch list (only them). Returns the ticket as ServiceNow saved it."""
+    current = (await _request("GET", f"/api/now/table/incident/{sys_id}",
+                              params={"sysparm_fields": "watch_list"})).get("result") or {}
+    watchers = [w for w in str(current.get("watch_list") or "").split(",") if w]
+    result = await _request("PATCH", f"/api/now/table/incident/{sys_id}",
+                            json={"watch_list": ",".join(w for w in watchers if w != user_sys_id)},
                             params={"sysparm_fields": _INCIDENT_FIELDS, "sysparm_display_value": "false"})
     return _incident(result["result"])
 

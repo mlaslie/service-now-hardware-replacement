@@ -121,11 +121,11 @@ Today the things an organization would change are spread across code:
 | G2.2 | **Done: `.env` / `.env.example`, `config.require()`, our defaults removed.** **One settings file** (`.env` from `.env.example`, or `config/deployment.yaml`) with every value explained: project, region, service name, ServiceNow instance, model, locations. Remove our defaults (`PROJECT_ID`, engine id, `INSTANCE`) from code; fail at startup with a clear message when something is missing. (Was C1.) | S |
 | G2.3 | **Done: `scripts/setup.sh` + `scripts/create_state_engine.py` (tested: created and deleted an instance).** **`scripts/setup.sh`** (idempotent): enable APIs, create the bucket, runtime service account and roles, the code-less Agent Runtime engine for sessions and memory, and print what to put in the settings file. (Was C2 + C3; the engine is hand-made today.) | M |
 | G2.4 | **Done 2026-10-03: `docs/DEPLOY_OPTIONS.md`; deploy.sh passes ORGANIZATION_PROFILE/MESSAGES_FILE/VISION_MODEL.** **Deploy options, documented side by side**: `scripts/deploy.sh` (gcloud, supported), plain `gcloud run deploy` for people who want to see it, and why `adk deploy cloud_run` / `agents-cli deploy` don't fit (custom A2A server with identity pass-through). Optional Terraform module for organizations that require IaC. | S/M |
-| G2.5 | **Gemini Enterprise registration**: a script that prints the agent card JSON and the authorization values (auth URL, token URL, scope) ready to paste, and optionally registers the agent + authorization through the Discovery Engine API. Document the gotchas (re-add to change the card, one authorization per agent, never authorize as admin). (Was C5.) | M |
+| G2.5 | **Done 2026-10-03: `scripts/print_registration.py` prints the agent card and authorization values; the Discovery Engine API registration is not built.** **Gemini Enterprise registration**: a script that prints the agent card JSON and the authorization values (auth URL, token URL, scope) ready to paste, and optionally registers the agent + authorization through the Discovery Engine API. Document the gotchas (re-add to change the card, one authorization per agent, never authorize as admin). (Was C5.) | M |
 | G2.6 | **Done (INSTALL step 2; screenshots still to add).** **ServiceNow setup guide** (was C4): OAuth client in Application Registry (authorization code, the two GE redirect URLs), what the connector client is, the seed-script client, how to test sign-in. Screenshots. | S |
 | G2.7 | **Done: `docs/ROLES.md`, measured on INSTANCE.** **Role matrix, measured, not guessed.** For each thing the agent does (read own profile, list own devices, read department equipment, read group memberships, create incident, set description / urgency / assignment group / location / watch list, add comment, change state, read journal, attach photo, read other people's open tickets on a CI), record the minimum role and ACL. Two personas: **admin** (one-time setup: OAuth client, groups, categories, seed) and **requester** (day to day). Document what degrades gracefully without each role. | M |
 | G2.8 | **Done: `scripts/sn_doctor.py` (impersonation; `--as`, `--matrix`, `--read-only`).** **`sn_doctor` permission checker**: `python scripts/sn_doctor.py --as <user>` signs in as a test user and tries each operation from G2.7 (creating and deleting a test incident), then prints a pass/fail table with the fix for each failure. Turns "why is urgency ignored?" into a one-minute check. | M |
-| G2.9 | **Post-deploy smoke test**: `scripts/smoke.sh` fetches the agent card, checks the declared A2UI versions, and runs a scripted conversation through `scripts/chat.py` (no submit). | S |
+| G2.9 | **Done 2026-10-03: `scripts/smoke.py` (card, A2UI versions, first answer); passed against revision 00031.** **Post-deploy smoke test**: `scripts/smoke.sh` fetches the agent card, checks the declared A2UI versions, and runs a scripted conversation through `scripts/chat.py` (no submit). | S |
 | G2.10 | **Done 2026-10-03: `docs/CHANGELOG.md`.** **Upgrade notes / CHANGELOG** with a line per release that needs action (e.g. "re-add the agent: agent card changed"). | S |
 
 ### G3. Customize without code (P1)
@@ -141,7 +141,7 @@ office" and one for "hospital" (today's behaviour).
 | G3.3 | **Done 2026-10-03: `config/messages.yaml` + `app/messages.py` (120 keys, placeholders checked).** **Wording**: every user-facing string (card titles, subtitles, button labels, the desktop/mobile question and accepted answers, safety text, confirmation text) in `config/messages.yaml`. Keys, not Python. Opens the door to G5.1 (languages). | M |
 | G3.4 | **Problem choices**: per device kind, the list of issue options, each with its label, the ServiceNow value it writes (category / subcategory / custom field), whether a photo is required / recommended / not asked, what to photograph, and a minimum urgency (e.g. safety concern = critical). Replaces `ISSUE_CATEGORIES`, `EQUIPMENT_ISSUES`, `PHOTO_POLICY`, `_BLOCKING`. | M |
 | G3.5 | **Done via option B + import: `scripts/sn_profile.py import-issues` / `check`; no run-time reads.** **Use the organization's own ServiceNow choice lists.** Option A: `source: servicenow` reads `sys_choice` for a field (e.g. `incident.subcategory` where `dependent_value=hardware`, or a custom `u_hardware_type`) and shows exactly those, with their labels and order, cached. Option B: a static list in the profile, each mapped to a choice value. Either way the agent only ever writes values that exist; `--check` flags profile values missing from ServiceNow. | M |
-| G3.6 | **Device types from ServiceNow**: map model categories to device kinds (personal / shared / clinical) and to the organization's hardware-type values, instead of the laptop-name heuristics and `CLINICAL_CATEGORIES`. | S |
+| G3.6 | **Done 2026-10-03: profile `devices.category_types` (model category -> device type); clinical via `clinical_categories`.** **Device types from ServiceNow**: map model categories to device kinds (personal / shared / clinical) and to the organization's hardware-type values, instead of the laptop-name heuristics and `CLINICAL_CATEGORIES`. | S |
 | G3.7 | **Partly done: `ticket_fields` (templated), `device_values`, `urgency_matrix`, refused fields noted; table / catalog item and state codes still fixed.** **Ticket mapping**: which table (incident today; option for a Service Catalog item / `sc_req_item`, see D4), which category, which fields get description, urgency/impact, CI, location, assignment group, correlation id; the state labels and codes; the priority matrix (urgency × impact → label). Organizations with custom fields add them here (e.g. `u_cost_center`, `u_building`). | M |
 | G3.8 | **Partly done 2026-10-03: `requester_changes` (urgency, status, ship-to, cancel -> desk note when off); response targets, refresh ages and recommendation texts were already in the profile; a fallback group is not (needs a group per instance).** **Service rules**: response targets per priority, refresh ages per device type, recommendation texts, "who handles it" fallback group, whether requesters may change urgency / reopen / cancel (or only request it via a note). | S |
 | G3.9 | **Done 2026-10-03: profile `features` (6 switches).** **Feature switches**: equipment reporting, photo analysis, followers / duplicate detection, saved addresses, memory, the desktop/mobile question (off for web-only organizations), safety concern category, ownership check. | S |
@@ -306,7 +306,7 @@ SETUP.md outline: prerequisites → `cp .env.example .env` → `bootstrap.sh` �
 ## D. Ideas to make the agent better and more streamlined (P2 unless noted)
 
 **Fewer steps**
-- **D1. One-shot intake (P1):** a single photo plus one sentence goes straight to review. This mostly works
+- **D1. One-shot intake (P1): done 2026-10-03** (eval case `one-shot-photo-and-sentence` passes): a single photo plus one sentence goes straight to review. This mostly works
   already; make it the documented happy path and eval it (A2).
 - **D2.** Auto-submit option: "file it" in the opening message plus a complete draft → submit with a
   confirmation card that has an Undo (cancel) button, instead of a separate review step.
@@ -321,17 +321,17 @@ SETUP.md outline: prerequisites → `cp .env.example .env` → `bootstrap.sh` �
 - **D7.** Returns/logistics: after fulfilment, show the return label and shipping instructions for the old device.
 
 **Proactive and status**
-- **D8.** "What's happening with my replacement?" digest: all open tickets in one card with the latest note
+- **D8. Done 2026-10-03** (`list_my_tickets(latest_notes=True)`, eval `whats-happening-digest`). "What's happening with my replacement?" digest: all open tickets in one card with the latest note
   (single ServiceNow query).
-- **D9.** Warn on duplicates: **done for shared and clinical equipment** (F). Still open for personal devices
+- **D9. Done 2026-10-03** (personal devices too: own open ticket offered first). Warn on duplicates: **done for shared and clinical equipment** (F). Still open for personal devices
   (e.g. a second ticket for the same laptop by the same person).
 
 **Quality and operations**
-- **D10.** Structured logging of each path (intake source: typed/photo-label/photo-damage/picker)
+- **D10. Done 2026-10-03** (one `ticket_filed` JSON log line per ticket). Structured logging of each path (intake source: typed/photo-label/photo-damage/picker)
   to measure which paths users actually take.
-- **D11.** Admin/system-account guard: if the resolved ServiceNow user has the `admin` role, warn
+- **D11. Done 2026-10-03** (warning on the first and review cards). Admin/system-account guard: if the resolved ServiceNow user has the `admin` role, warn
   (problem 12 in the handoff).
-- **D12.** Cost: skip the vision call when the photo is a duplicate (same hash) within a request.
+- **D12. Done 2026-10-03** (photos deduplicated by SHA-256 within a request). Cost: skip the vision call when the photo is a duplicate (same hash) within a request.
 
 ---
 
@@ -376,15 +376,15 @@ laptop, the report reaches the team that fixes it, and everyone affected gets up
   "In maintenance" so the next person sees it's tagged out (needs asset write access).
 - **F4 (P2, S). Vendor-serviced equipment.** Imaging often has a vendor service contract; show the vendor and
   contract number on the review card and ticket (`ast_contract` / `service_contract` on the asset).
-- **F5 (P2, S). Safety event reporting.** Link to the hospital's safety event system (or open the event)
+- **F5 done 2026-10-03** (`service.safety_event_url`, shown with safety concerns). **F5 (P2, S). Safety event reporting.** Link to the hospital's safety event system (or open the event)
   when a patient or staff member was harmed; the agent only reminds today.
 - **F6 (P2, S). Configurable CI class.** Hospitals with a clinical device plugin keep CIs in their own class;
   confirm `_link_cis` and `ASSET_TABLES` cover it on a real instance.
-- **F7 (P2, S). Unfollow.** "Stop following INC…" removes the user from the watch list.
+- **F7 done 2026-10-03** (`unfollow_ticket`; the custom role's business rule allows removing yourself). **F7 (P2, S). Unfollow.** "Stop following INC…" removes the user from the watch list.
 
 ---
 
-## E. Mobile: a text-only experience (needs a decision)
+## E. Mobile: a text-only experience: **done** (E0 measured, E1 text renderer, E2 first-turn question, E4 tests; E3 not needed)
 
 **Why:** the Gemini Enterprise mobile app doesn't render A2UI.
 

@@ -75,6 +75,7 @@ Your organization's name (shown in logs and the check summary).
 | `clinical_categories` | Model categories treated as medical equipment (repaired on site by the asset's support group). Empty for offices. |
 | `asset_tag_hint` | How asset tags look, in plain words, so the photo reader reads the right number |
 | `refresh_years`, `default_refresh_years` | Age (by device type) at which a personal device is refresh-eligible |
+| `category_types` | Model category -> device type (`laptop`, `desktop`, `monitor`, `phone`, `tablet`, `other`) when your categories say it; unlisted categories are guessed from the category and model name |
 
 ### `issues`
 Two lists: `personal` (devices assigned to a person) and `equipment` (shared and clinical). Each

@@ -1075,3 +1075,18 @@ async def test_whats_happening_shows_the_latest_note_per_ticket(sn, monkeypatch)
     assert "Latest: Replacement ships Monday" in card_text(ctx)
     plain = await tools.list_my_tickets(ctx)
     assert "Latest:" not in card_text(ctx) and plain["tickets"][0]["number"] == filed["ticket"]
+
+
+async def test_a_follower_can_stop_following(sn):
+    """F7: only the follower is removed; the reporter's own ticket can't be unfollowed."""
+    jane = ctx_for(JANE)
+    first = await _report_mri(jane)
+    john = ctx_for(JOHN, session="sess-2")
+    await tools.select_device("CE-10421", john)
+    await tools.confirm_device(True, john)
+    await tools.follow_ticket(first["ticket"], john)
+    sn.tables["incident"][0]["watch_list"] = "someone_else," + JOHN
+    result = await tools.unfollow_ticket(first["ticket"], john)
+    assert result["status"] == "ok" and sn.tables["incident"][0]["watch_list"] == "someone_else"
+    assert (await tools.list_my_tickets(john))["count"] == 0
+    assert (await tools.unfollow_ticket(first["ticket"], jane))["status"] == "error"

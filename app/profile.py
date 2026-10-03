@@ -189,6 +189,9 @@ class Devices(_Strict):
     asset_tag_hint: str = Field(min_length=1, description="How asset tags look, for the photo model")
     refresh_years: dict[str, float] = Field(default_factory=dict, description="Replacement age by device type")
     default_refresh_years: float = 4
+    category_types: dict[str, Literal["laptop", "desktop", "monitor", "phone", "tablet", "other"]] = Field(
+        default_factory=dict, description="Model category -> device type, when the category says it "
+        "(otherwise the type is guessed from the category and model name)")
 
 
 class Recommendations(_Strict):
@@ -211,6 +214,15 @@ class Service(_Strict):
     personal_response_targets: dict[str, str] = Field(description="Priority 1-4 -> text, personal devices")
     equipment_response_targets: dict[str, str] = Field(description="Priority 1-4 -> text, equipment")
     safety_text: str = Field(min_length=1)
+    safety_event_url: str = Field("", description="Where staff report a safety event (patient or staff harm); "
+                                  "shown with safety concerns. Empty = not shown")
+
+    @field_validator("safety_event_url")
+    @classmethod
+    def _https(cls, value: str) -> str:
+        if value and not value.startswith("https://"):
+            raise ValueError("must start with https://")
+        return value
     recommendations: Recommendations = Field(default_factory=Recommendations)
 
     @field_validator("personal_response_targets", "equipment_response_targets")

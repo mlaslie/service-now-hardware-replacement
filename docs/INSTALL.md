@@ -93,10 +93,11 @@ tools don't set up. Terraform is on the backlog (G2.4).
 
 ## 7. Register in Gemini Enterprise
 
-First copy the agent card (the JSON that describes the agent):
+First print the agent card (the JSON that describes the agent) and the authorization values for 7c:
 ```bash
-curl -s -H "Authorization: Bearer $(gcloud auth print-identity-token)" https://SERVICE_NAME-PROJECT_NUMBER.REGION.run.app/.well-known/agent-card.json
+uv run python scripts/print_registration.py
 ```
+(or fetch just the card: `curl -s -H "Authorization: Bearer $(gcloud auth print-identity-token)" https://SERVICE_NAME-PROJECT_NUMBER.REGION.run.app/.well-known/agent-card.json`)
 
 **7a. Choose the agent type.** Google Cloud console > **Gemini Enterprise** > your app > **Agents** >
 **Add Agents**. On **Custom agent via A2A**, click **Add**.
@@ -130,6 +131,11 @@ Good to know: one authorization belongs to one agent; to update the agent card, 
 ServiceNow as an admin in the same browser (the agent would act as the admin).
 
 ## 8. Try it
+
+First a quick automated check (agent card, A2UI versions, a first answer; nothing is filed):
+```bash
+uv run python scripts/smoke.py --url https://SERVICE_NAME-PROJECT_NUMBER.REGION.run.app
+```
 
 In Gemini Enterprise, open the agent, send "my laptop screen is cracked", click **Authorize** and
 sign in to ServiceNow as yourself, answer **2** (desktop). You should see your devices.

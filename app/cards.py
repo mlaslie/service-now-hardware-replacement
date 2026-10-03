@@ -353,6 +353,8 @@ def review(draft: dict, employee: dict) -> list[dict]:
                  c.field(M("review.requested_by"), f"{employee.get('name', '')} ({employee.get('email', '')})")]
     if PROFILE.is_safety(issue.get("category", "")):
         kids.append(c.text(M("review.safety", text=SAFETY_TEXT), "body"))
+        if PROFILE.service.safety_event_url:
+            kids.append(c.text(M("safety.event", url=PROFILE.service.safety_event_url), "body"))
     for warning in draft.get("warnings") or []:
         kids.append(c.text(M("review.note", text=warning), "caption"))
     if employee.get("is_admin"):
@@ -383,6 +385,7 @@ def confirmation(number: str, draft: dict) -> list[dict]:
     c = Card()
     device = draft.get("device") or {}
     equipment = is_equipment(device)
+    safety = PROFILE.is_safety((draft.get("issue") or {}).get("category", ""))
     kids = c.header(None, M("done.title", number=number),
                     M("done.equipment", group=device.get("support_group") or M("done.equipment_group")) if equipment
                     else M("done.personal"))
@@ -395,8 +398,9 @@ def confirmation(number: str, draft: dict) -> list[dict]:
         c.field(M("review.recommended"), draft.get("recommendation")),
         c.field(M("done.expected"), draft.get("sla")),
         c.divider(),
-        c.text(SAFETY_TEXT if PROFILE.is_safety((draft.get("issue") or {}).get("category", "")) else
-               M("done.equipment_tip") if equipment else M("done.personal_tip"), "caption"),
+        c.text(SAFETY_TEXT if safety else M("done.equipment_tip") if equipment else M("done.personal_tip"), "caption"),
+        *([c.text(M("safety.event", url=PROFILE.service.safety_event_url), "body")]
+          if safety and PROFILE.service.safety_event_url else []),
         c.row([c.button(M("common.view_tickets"), "list_tickets"), c.button(M("done.another"), "start_over")]),
     ]
     return c.build(kids)

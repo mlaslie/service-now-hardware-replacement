@@ -28,9 +28,10 @@ from app.tools.filing import submit_ticket
 from app.tools.intake import (analyze_photos, choose_ship_to, confirm_device, find_device, request_label_photo,
                               select_device, set_issue, show_review, skip_photo, start_request, update_request)
 from app.tools.tickets import (add_ticket_note, cancel_ticket, change_ticket_shipping, follow_ticket, get_ticket,
-                               list_my_tickets, report_separately, request_urgent_handling, update_ticket)
+                               list_my_tickets, report_separately, request_urgent_handling, unfollow_ticket,
+                               update_ticket)
 
 ALL_TOOLS = [start_request, select_device, find_device, confirm_device, request_label_photo, set_issue,
              analyze_photos, skip_photo, update_request, choose_ship_to, show_review, submit_ticket, follow_ticket,
              report_separately, list_my_tickets, get_ticket, update_ticket, add_ticket_note, change_ticket_shipping,
-             request_urgent_handling, cancel_ticket]
+             request_urgent_handling, cancel_ticket, unfollow_ticket]

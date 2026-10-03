@@ -80,3 +80,5 @@ gcloud run services add-iam-policy-binding "$SERVICE" --project="$PROJECT" --reg
 echo
 echo "Agent card: ${SERVICE_URL}/.well-known/agent-card.json"
 echo "Check it:   curl -s -H \"Authorization: Bearer \$(gcloud auth print-identity-token)\" ${SERVICE_URL}/.well-known/agent-card.json | jq .url"
+echo "Smoke test: uv run python scripts/smoke.py --url ${SERVICE_URL}"
+echo "Register:   uv run python scripts/print_registration.py   (agent card JSON and the authorization values)"

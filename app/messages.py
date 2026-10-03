@@ -117,6 +117,7 @@ DEFAULTS: dict[str, str] = {
     "review.requested_by": "Requested by",
     "review.safety": "Safety: {text}",
     "review.note": "Note: {text}",
+    "safety.event": "If anyone was harmed, also file a safety event report: {url}",
     "review.submit": "Submit request",
     "review.change": "Change something",
     "review.ship_saved": "Ship to {label} instead: {address}",
