@@ -184,6 +184,43 @@ class Doctor:
             self.cleanup.clear()
         return rep
 
+    def _limits(self, s: httpx.Client, user: dict, rep: Report, admin_id: str, other: str) -> None:
+        """What a requester should NOT be able to do. PASS = refused; PART = allowed, i.e. the role
+        grants more than the agent needs (expected for itil, a fulfiller role)."""
+        before = self.admin.get(f"/api/now/table/incident/{other}", sysparm_exclude_reference_link="true",
+                                sysparm_fields="short_description,caller_id,assignment_group,watch_list")
+        s.patch(f"/api/now/table/incident/{other}", json={
+            "short_description": f"{MARK} changed by a follower", "caller_id": user["sys_id"]})
+        after = self.admin.get(f"/api/now/table/incident/{other}", sysparm_exclude_reference_link="true",
+                               sysparm_fields="short_description,caller_id")
+        changed = [k for k in ("short_description", "caller_id") if _val(after.get(k)) != _val(before.get(k))]
+        c = rep.add("Limit: edit someone else's ticket", "only the reporter changes a ticket")
+        c.status, c.detail = ("pass", "refused") if not changed else ("partial", "allowed: " + ", ".join(changed))
+        if changed:
+            c.hint = "The role can edit others' tickets beyond notes and following."
+            self.admin.http.patch(f"/api/now/table/incident/{other}", json={
+                k: _val(before.get(k)) for k in ("short_description", "caller_id")})
+
+        s.patch(f"/api/now/table/incident/{other}", json={"watch_list": user["sys_id"]})
+        got = self.admin.get(f"/api/now/table/incident/{other}", sysparm_fields="watch_list",
+                             sysparm_exclude_reference_link="true")
+        kept = admin_id in _val(got.get("watch_list"))
+        c = rep.add("Limit: remove other followers", "followers can only add or remove themselves")
+        c.status, c.detail = ("pass", "refused") if kept else ("partial", "other followers were removed")
+        if not kept:
+            c.hint = "Install the follow-only business rule (create_hardware_requester_role.js)."
+
+        hidden = self.admin.create("incident", {"caller_id": admin_id, "category": "inquiry",
+                                                "short_description": f"{MARK} not a hardware ticket"})
+        self.cleanup.append(("incident", hidden["sys_id"]))
+        r = s.get("/api/now/table/incident", params={"sysparm_query": f"sys_id={hidden['sys_id']}",
+                                                      "sysparm_fields": "sys_id"})
+        seen = _ok(r) and bool(_result(r))
+        c = rep.add("Limit: read a non-hardware ticket", "requesters see hardware tickets only")
+        c.status, c.detail = ("pass", "hidden") if not seen else ("partial", "readable")
+        if seen:
+            c.hint = "The role reads incidents outside the hardware category."
+
     def _identity(self, s: httpx.Client, user: dict, rep: Report) -> None:
         r = s.get("/api/now/ui/user/current_user")
         me = _result(r) or {}
@@ -337,6 +374,8 @@ class Doctor:
         c.status = "pass" if user["sys_id"] in _val(got.get("watch_list")) else "fail"
         if c.status == "fail":
             c.hint = "incident write on others' tickets / watch_list. The user can still report separately."
+
+        self._limits(s, user, rep, admin_id, other["sys_id"])
 
         r = s.patch(f"/api/now/table/incident/{inc}", json={
             "state": "8", "close_code": "Solved Remotely (Permanently)", "close_notes": f"{MARK} cancel"})

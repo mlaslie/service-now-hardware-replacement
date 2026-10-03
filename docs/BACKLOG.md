@@ -76,10 +76,10 @@ Truncation: ticket list says when there are more; group memberships read up to 5
 - [ ] **Needs your decision.** Personal identifiers in tracked docs (`HANDOFF.md`, `BACKLOG.md`, `CLAUDE.md`, one screenshot) and in
   git history of `demo/DEMO.html` (needs a history rewrite to remove; repo is private).
 
-### H3. Test gaps (P1)
-- [ ] `server.preprocess`/`to_run_request`: token never in state, identity refreshed per turn, display-mode handling.
-- [ ] `sn_doctor` negative checks: writes to other fields on others' tickets; reading non-hardware incidents.
-- [ ] `memory` save/delete of addresses; `seed reset` with pre-existing users.
+### H3. Test gaps (P1): **done 2026-10-03** (`tests/test_server.py`, `tests/test_memory.py`, sn_doctor Limit checks; seed reset covered in H1.9)
+- [x] `server.preprocess`/`to_run_request`: token never in state, identity refreshed per turn, display-mode handling.
+- [x] `sn_doctor` negative checks: writes to other fields on others' tickets; reading non-hardware incidents.
+- [x] `memory` save/delete of addresses; `seed reset` with pre-existing users.
 
 ---
 

@@ -140,7 +140,12 @@ jane.doe  (roles: none)
         -> incident.urgency write: sn_incident_write (priority falls back to the default); ...
 ```
 
-What it writes: one test ticket per user checked (plus one created as admin to test "someone
-else's ticket"), deleted at the end. `--matrix` also creates temporary users (no password) with a
+Three **Limit** checks try what a requester should not be able to do: edit someone else's ticket,
+remove other followers, read a non-hardware ticket. PASS means ServiceNow refused; PART means the role
+allows it (expected for `itil`, a fulfiller role; for `u_hardware_requester` it means the role's rules or
+business rule aren't installed). Anything changed is put back.
+
+What it writes: one test ticket per user checked (plus two created as admin to test "someone
+else's ticket" and a non-hardware ticket), deleted at the end. `--matrix` also creates temporary users (no password) with a
 temporary device and group membership, all deleted at the end. Impersonation appears in
 ServiceNow's logs.

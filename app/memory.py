@@ -111,12 +111,14 @@ def _save_address(email: str, label: str, address: str) -> None:
     key = normalize_address(address)
     if any(normalize_address(a.get("address", "")) == key for a in existing):
         return
-    for a in existing:  # a new address for the same label (they moved) replaces the old one
-        if label and (a.get("label") or "").lower() == label.lower():
-            _client().agent_engines.memories.delete(name=a["memory"])
+    # Saved first, then the old address for the same label (they moved) removed: if saving fails,
+    # the old one is still there.
     _client().agent_engines.memories.create(
         name=_engine(), fact=_ADDRESS_PREFIX + json.dumps({"label": label, "address": address}),
-        scope={"app_name": _ADDRESS_SCOPE_APP, "user_id": email}, config={"wait_for_completion": False})
+        scope={"app_name": _ADDRESS_SCOPE_APP, "user_id": email}, config={"wait_for_completion": True})
+    for a in existing:
+        if label and (a.get("label") or "").lower() == label.lower():
+            _client().agent_engines.memories.delete(name=a["memory"])
 
 
 async def save_address(email: str, label: str, address: str) -> None:
