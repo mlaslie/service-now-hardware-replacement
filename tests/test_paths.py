@@ -842,3 +842,88 @@ async def test_a_refused_field_is_noted_for_the_desk(sn):
     sn.refuse = {"subcategory"}
     await _file(ctx_for())
     assert any("Could not set subcategory = 'cpu'" in c for c in sn.tables["incident"][0]["comments_log"])
+
+
+# --- after filing, the draft is closed (H1.6) -------------------------------------------------
+
+
+async def test_editing_after_filing_points_to_the_ticket(sn):
+    ctx = ctx_for()
+    filed = await _file(ctx)
+    for call in (tools.update_request(ctx, urgency="high"), tools.choose_ship_to("", ctx),
+                 tools.skip_photo(ctx), tools.confirm_device(True, ctx)):
+        result = await call
+        assert result["status"] == "already_submitted" and result["ticket"] == filed["ticket"]
+        assert "update_ticket" in result["message"]
+    assert len(sn.tables["incident"]) == 1
+
+
+# --- photo evidence (H1.7, H1.12) -----------------------------------------------------------
+
+
+async def test_a_later_wide_shot_keeps_the_damage_close_up(sn, monkeypatch):
+    ctx = ctx_for()
+    await pick(ctx, "123456")
+    await tools.set_issue("cracked_screen", "Cracked", "normal", ctx)
+    send_photos(ctx, monkeypatch, damage(), PhotoFindings(image_kind="device"))
+    await tools.analyze_photos(ctx)
+    assert draft(ctx)["evidence"]["supports_replacement"] is True
+    assert not any("didn't clearly show" in w for w in draft(ctx)["photo_warnings"])
+    # And in a later message too.
+    send_photos(ctx, monkeypatch, PhotoFindings(image_kind="device"))
+    await tools.analyze_photos(ctx)
+    assert draft(ctx)["evidence"]["supports_replacement"] is True
+
+
+async def test_changing_the_device_drops_the_old_devices_photos(sn, monkeypatch):
+    ctx = ctx_for()
+    await pick(ctx, "123456")
+    await tools.set_issue("cracked_screen", "Cracked", "normal", ctx)
+    send_photos(ctx, monkeypatch, damage(serial_number="WRONG123"))
+    await tools.analyze_photos(ctx)
+    assert draft(ctx).get("evidence")
+    other = next(a for a in sn.tables["alm_hardware"]
+                 if a["asset_tag"] != "123456" and a.get("assigned_to", {}).get("value") == JANE)
+    await pick(ctx, other["asset_tag"])
+    d = draft(ctx)
+    assert d["device"]["asset_tag"] == other["asset_tag"]
+    assert not d.get("evidence") and not d.get("photos") and not d.get("photo_warnings")
+
+
+async def test_two_submits_at_once_file_one_ticket(sn, monkeypatch):
+    """A double click or a retried turn: two submits of the same request run concurrently, each
+    with its own copy of the session state (H1.11)."""
+    import asyncio
+    import copy
+
+    real = servicenow._request
+
+    async def slow(*a, **kw):  # yield like real network I/O, so the two submits interleave
+        await asyncio.sleep(0.01)
+        return await real(*a, **kw)
+
+    monkeypatch.setattr(servicenow, "_request", slow)
+
+    ctx = ctx_for(session="sess-race")
+    await pick(ctx, "123456")
+    await tools.set_issue("wont_power_on", "Dead", "normal", ctx)
+    twin = SimpleNamespace(state=copy.deepcopy(ctx.state), session=ctx.session)
+    a, b = await asyncio.gather(tools.submit_ticket(ctx), tools.submit_ticket(twin))
+    assert len(sn.tables["incident"]) == 1
+    assert a["ticket"] == b["ticket"] == sn.tables["incident"][0]["number"]
+
+
+async def test_ship_to_on_equipment_is_explained_not_called_policy(sn):
+    ctx = ctx_for(JANE)
+    first = await _report_mri(ctx)
+    result = await tools.update_ticket(first["ticket"], ctx, ship_to="500 Warehouse Ave, Austin, TX 78701")
+    assert result["not_applicable"][0]["change"] == "Ship-to address" and not result["not_permitted_note_added"]
+    assert "repaired on site" in card_text(ctx) and "policy" not in card_text(ctx)
+    assert "asked to ship the replacement to: 500 Warehouse Ave" in sn.tables["incident"][0]["comments_log"][-1]
+
+
+async def test_ship_to_change_on_own_ticket_still_applies(sn):
+    ctx = ctx_for()
+    filed = await _file(ctx)
+    result = await tools.update_ticket(filed["ticket"], ctx, ship_to="500 Warehouse Ave, Austin, TX 78701")
+    assert result["changed"] == [{"change": "Ship-to address", "value": "500 Warehouse Ave, Austin, TX 78701"}]

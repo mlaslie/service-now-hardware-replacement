@@ -37,22 +37,22 @@ H0.6 also needs the create script re-run in ServiceNow (elevated).**
   Limit to: own tickets, or open tickets on equipment (`cmdb_ci` set), and require the change to keep existing
   entries. Needs a re-run of the background script by an admin.
 
-### H1. Robustness (P1)
-- [ ] H1.1 ServiceNow timeouts/connection errors escape every soft-fail handler; HTML error pages read as
+### H1. Robustness (P1): **done 2026-10-03** (tests for each; `f03bbb2` and next commit)
+- [x] H1.1 ServiceNow timeouts/connection errors escape every soft-fail handler; HTML error pages read as
   "Hibernating" before the status is checked (`servicenow._request`).
-- [ ] H1.2 A transient session-read failure re-asks the desktop/mobile question mid-conversation (`server.py`).
-- [ ] H1.3 Answers like "I'm on desktop", "1 - mobile", "1)" loop the display question (`inbound.py`).
-- [ ] H1.4 Stale numbered options: a later bare "1" can trigger an old button (clear options on turns without a card).
-- [ ] H1.5 Photo decode/upload failure fails the whole turn and loses the text (`inbound.py`, `server.py`).
-- [ ] H1.6 Editing after submit edits only the local draft (`update_request`, `choose_ship_to`, ...): point to `update_ticket`.
-- [ ] H1.7 A later photo without visible damage overwrites earlier damage evidence (`analyze_photos`).
-- [ ] H1.8 Profile values that validate but crash at submit: positional `{}` in `ticket_fields`, unknown
+- [x] H1.2 A transient session-read failure re-asks the desktop/mobile question mid-conversation (`server.py`).
+- [x] H1.3 Answers like "I'm on desktop", "1 - mobile", "1)" loop the display question (`inbound.py`).
+- [x] H1.4 Stale numbered options: a later bare "1" can trigger an old button (clear options on turns without a card).
+- [x] H1.5 Photo decode/upload failure fails the whole turn and loses the text (`inbound.py`, `server.py`).
+- [x] H1.6 Editing after submit edits only the local draft (`update_request`, `choose_ship_to`, ...): point to `update_ticket`.
+- [x] H1.7 A later photo without visible damage overwrites earlier damage evidence (`analyze_photos`).
+- [x] H1.8 Profile values that validate but crash at submit: positional `{}` in `ticket_fields`, unknown
   placeholders in `recommendations`.
-- [ ] H1.9 `seed reset` deletes all tickets of pre-existing users the seed only updated; filter by the seed's tickets.
+- [x] H1.9 `seed reset` deletes all tickets of pre-existing users the seed only updated; filter by the seed's tickets.
 - [x] H1.10 `remove_hardware_requester_role.js` ignores delete results and doesn't check elevation (done with H0.6: verifies each delete, keeps the role if a rule remains, removes group grants).
-- [ ] H1.11 Concurrent submits can file two tickets (no lock between the "already submitted" check and create).
-- [ ] H1.12 Old device's photo warnings/evidence carry over after the device changes (`_set_device`).
-- [ ] H1.13 Ship-to change on a ticket without a Ship-to line (equipment, or description dropped) is reported as
+- [x] H1.11 Concurrent submits can file two tickets (no lock between the "already submitted" check and create).
+- [x] H1.12 Old device's photo warnings/evidence carry over after the device changes (`_set_device`).
+- [x] H1.13 Ship-to change on a ticket without a Ship-to line (equipment, or description dropped) is reported as
   "ServiceNow policy", and the note says "changed" even when it wasn't.
 
 ### H2. Lower priority (P2)

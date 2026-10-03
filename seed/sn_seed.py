@@ -640,6 +640,31 @@ DELETE_ORDER = ["sys_user_grmember", "sys_user_has_role", "alm_license", "alm_ha
                 "sys_user_group", "sys_user", "cmn_location", "cmn_department", "cmn_cost_center"]
 
 
+# Set on every ticket the agent files (app/tools.py submit_ticket).
+AGENT_MARK = "Gemini Enterprise - Hardware Replacement agent"
+
+
+def demo_tickets(sn: SN, users: dict, extra_query: str = "") -> list[dict]:
+    """Tickets safe to delete: every ticket of a user this script created, but only the agent's
+    tickets for people who existed before (their other tickets are real work)."""
+    ids = [u["sys_id"] for u in users.values()]
+    created = {u["sys_id"] for u in users.values() if u.get("created")}
+    q = "^OR".join(filter(None, [f"caller_idIN{','.join(ids)}" if ids else "",
+                                 f"opened_byIN{','.join(ids)}" if ids else "", extra_query]))
+    if not q:
+        return []
+    rows = sn.query("incident", q, "sys_id,number,short_description,caller_id,opened_by,correlation_display,cmdb_ci")
+
+    def ref(v):
+        return v.get("value", "") if isinstance(v, dict) else (v or "")
+
+    def ours(r):
+        people = {ref(r.get("caller_id")), ref(r.get("opened_by"))}
+        return bool(people & created) or (r.get("correlation_display") or "").startswith(AGENT_MARK) \
+            or bool(extra_query and ref(r.get("cmdb_ci")) and ref(r.get("cmdb_ci")) in extra_query)
+    return [r for r in rows if ours(r)]
+
+
 def plan_reset(sn: SN, m: Manifest, only: set[str] | None = None) -> dict:
     """What reset will do. With `only`, just those users: their tickets, their seeded
     assets, and the user (deleted if the script created them, otherwise restored).
@@ -650,8 +675,7 @@ def plan_reset(sn: SN, m: Manifest, only: set[str] | None = None) -> dict:
     plan: dict = {"users": names, "incidents": [], "delete": {},
                   "restore_users": {sid: f for sid, f in m.user_snapshots.items() if sid in user_ids}}
     if user_ids:
-        ids = ",".join(user_ids)
-        plan["incidents"] = sn.query("incident", f"caller_idIN{ids}^ORopened_byIN{ids}", "sys_id,number,short_description")
+        plan["incidents"] = demo_tickets(sn, users)
     for table in ("alm_license", "alm_hardware"):
         if table in m.created or sn.table_exists(table):
             q = f"commentsLIKE{SEED_MARK}" + (f"^assigned_toIN{','.join(user_ids)}" if only else "")
@@ -755,15 +779,13 @@ def cmd_reset(sn: SN, yes: bool, memory: bool, only: set[str] | None = None) -> 
 
 
 def cmd_clear_tickets(sn: SN, yes: bool) -> None:
-    """Deletes the seeded users' tickets and any ticket on seeded equipment, keeping
+    """Deletes the demo tickets (see demo_tickets) and any ticket on seeded equipment, keeping
     users, devices and equipment: a clean slate for the next demo run."""
     m = Manifest.load()
-    ids = ",".join(u["sys_id"] for u in m.users.values())
     cis = [c for c in (sn.get("alm_hardware", sid, "ci").get("ci") for sid in m.equipment.values()) if c]
     cis += [r["sys_id"] for r in sn.query("cmdb_ci", f"assetIN{','.join(m.equipment.values())}")] if m.equipment else []
-    q = "^OR".join(filter(None, [f"caller_idIN{ids}" if ids else "", f"opened_byIN{ids}" if ids else "",
-                                 f"cmdb_ciIN{','.join(dict.fromkeys(cis))}" if cis else ""]))
-    incidents = sn.query("incident", q, "sys_id,number,short_description") if q else []
+    # Tickets on seeded equipment are demo tickets, whoever filed them.
+    incidents = demo_tickets(sn, m.users, f"cmdb_ciIN{','.join(dict.fromkeys(cis))}" if cis else "")
     log(f"tickets to delete ({len(incidents)}): " + ", ".join(i["number"] for i in incidents))
     if not yes:
         log("\nDry run. Re-run with --yes to apply.")

@@ -130,15 +130,17 @@ def test_reset_undoes_everything(env):
     sn_seed.cmd_set(sn, users, sn_seed.HERE / "catalog.json")
     jane = next(r for r in sn.tables["sys_user"].values() if r["user_name"] == "jane.doe")
     sn.tables["incident"] = {
-        "i1": {"sys_id": "i1", "number": "INC1", "caller_id": "u1"},
+        "i1": {"sys_id": "i1", "number": "INC1", "caller_id": "u1", "correlation_display": sn_seed.AGENT_MARK},
         "i2": {"sys_id": "i2", "number": "INC2", "opened_by": jane["sys_id"]},
         "i3": {"sys_id": "i3", "number": "INC3", "caller_id": "u0"},  # someone else's: kept
+        # john.doe existed before the seed: his own (non-agent) work is kept.
+        "i4": {"sys_id": "i4", "number": "INC4", "caller_id": "u1", "correlation_display": ""},
     }
     sn_seed.cmd_reset(sn, yes=False, memory=False)  # dry run changes nothing
-    assert len(sn.tables["incident"]) == 3
+    assert len(sn.tables["incident"]) == 4
 
     sn_seed.cmd_reset(sn, yes=True, memory=False)
-    assert list(sn.tables["incident"]) == ["i3"]
+    assert sorted(sn.tables["incident"]) == ["i3", "i4"]
     assert not sn.tables["alm_hardware"] and not sn.tables["alm_license"]
     assert set(sn.tables["sys_user"]) == {"u0", "u1"}  # created user gone, pre-existing kept
     assert sn.tables["sys_user"]["u1"]["first_name"] == "Old" and sn.tables["sys_user"]["u1"]["email"] == "old@x"
@@ -236,10 +238,11 @@ def test_clear_tickets_keeps_people_and_equipment(env):
     sn_seed.cmd_set(sn, users, sn_seed.HERE / "catalog.json")
     mri = _equipment(sn)["CE-10421"]
     sn.tables["incident"] = {
-        "i1": {"sys_id": "i1", "number": "INC1", "caller_id": "u1"},
+        "i1": {"sys_id": "i1", "number": "INC1", "caller_id": "u1", "correlation_display": sn_seed.AGENT_MARK},
         "i2": {"sys_id": "i2", "number": "INC2", "caller_id": "u0", "cmdb_ci": mri.get("ci", "")},
         "i3": {"sys_id": "i3", "number": "INC3", "caller_id": "u0"},  # unrelated
+        "i4": {"sys_id": "i4", "number": "INC4", "caller_id": "u1"},  # pre-existing user's own work: kept
     }
     sn_seed.cmd_clear_tickets(sn, yes=True)
-    assert list(sn.tables["incident"]) == ["i3"]
+    assert sorted(sn.tables["incident"]) == ["i3", "i4"]
     assert len(_equipment(sn)) == 8 and sn.tables["sys_user"]["u1"]

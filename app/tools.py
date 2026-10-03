@@ -81,6 +81,16 @@ def _intake_draft(ctx: ToolContext) -> dict:
     return draft
 
 
+def _already_filed(draft: dict) -> dict | None:
+    """For tools that edit the request before it is filed: once filed, changes go to the ticket."""
+    number = draft.get("submitted_number")
+    if not number:
+        return None
+    return {"status": "already_submitted", "ticket": number, "message": (
+        f"This request was already filed as {number}, so the draft can't change. Make the change on the "
+        f"ticket instead: update_ticket(number=\"{number}\", ...) for urgency, ship-to, status or a note.")}
+
+
 def _save(ctx: ToolContext, draft: dict) -> None:
     ctx.state["draft"] = _jsonable(draft)
 
@@ -272,6 +282,12 @@ def _set_device(draft: dict, device: dict, asset: dict | None = None) -> dict:
     """Puts a device on the draft, clearing what belonged to the previous one."""
     for key in ("suggested_device", "duplicates_checked", "match_note"):
         draft.pop(key, None)
+    previous = draft.get("device") or {}
+    if previous and (previous.get("asset_tag"), previous.get("serial_number")) != \
+            (device.get("asset_tag"), device.get("serial_number")):
+        # A different device: the photos, damage and label warnings were about the old one.
+        for key in ("photos", "evidence", "photo_warnings", "photo_skipped"):
+            draft.pop(key, None)
     draft["device"] = device
     if asset:
         draft["eligibility"] = eligibility(asset)
@@ -597,6 +613,8 @@ async def confirm_device(correct: bool, tool_context: ToolContext) -> dict:
     if not employee:
         return _no_identity(tool_context)
     draft = _draft(tool_context)
+    if filed := _already_filed(draft):
+        return filed
     if not draft.get("device"):
         return await _next_step(tool_context, draft, employee)
     if correct:
@@ -721,11 +739,15 @@ async def analyze_photos(tool_context: ToolContext) -> dict:
                 "supports_replacement": f["supports_replacement"], "photo_uri": photo["uri"],
             }
         elif draft.get("issue") and PROFILE.photo_policy(draft["issue"]["category"])[0] == "required" \
-                and f["image_kind"] not in ("label",):
+                and f["image_kind"] not in ("label",) \
+                and (draft.get("evidence") or {}).get("severity", "none") == "none":
+            # Only when no photo so far showed damage: a wide shot after a close-up keeps the close-up.
             photo_warnings.append("The photo didn't clearly show the damage; the desk may ask for another.")
             draft["evidence"] = {"summary": "Photo provided; damage not clearly visible", "severity": "none",
                                  "category": "", "supports_replacement": False, "photo_uri": photo["uri"]}
-    draft["photo_warnings"] = photo_warnings
+    if (draft.get("evidence") or {}).get("severity", "none") != "none":
+        photo_warnings = [w for w in photo_warnings if not w.startswith("The photo didn't clearly show the damage")]
+    draft["photo_warnings"] = list(dict.fromkeys(photo_warnings))
 
     summary = [{"image_kind": f["image_kind"], "device": f"{f['manufacturer']} {f['model']}".strip(),
                 "asset_tag": f["asset_tag"], "serial": f["serial_number"],
@@ -748,6 +770,8 @@ async def skip_photo(tool_context: ToolContext) -> dict:
     if not employee:
         return _no_identity(tool_context)
     draft = _draft(tool_context)
+    if filed := _already_filed(draft):
+        return filed
     draft["photo_skipped"] = True
     return await _next_step(tool_context, draft, employee)
 
@@ -772,6 +796,8 @@ async def update_request(tool_context: ToolContext, description: str = "", urgen
     if not employee:
         return _no_identity(tool_context)
     draft = _draft(tool_context)
+    if filed := _already_filed(draft):
+        return filed
     issue = dict(draft.get("issue") or {})
     if description:
         issue["description"] = description.strip()
@@ -806,6 +832,8 @@ async def choose_ship_to(address: str, tool_context: ToolContext) -> dict:
     if not employee:
         return _no_identity(tool_context)
     draft = _draft(tool_context)
+    if filed := _already_filed(draft):
+        return filed
     if not address:
         _set_delivery(draft)
     else:
@@ -844,12 +872,37 @@ async def submit_ticket(tool_context: ToolContext) -> dict:
     if need == "required" and not draft.get("evidence"):
         return await _next_step(tool_context, draft, employee)
 
-    issue, device = draft["issue"], draft["device"]
     session_id = tool_context.session.id if tool_context.session else ""
     # One per request, not per conversation: a retried turn (e.g. the reply
     # failed after filing) must not file twice, but a second request must file.
     conversation_id = f"{session_id}:{draft['id']}" if session_id else ""
-    existing = await servicenow.find_open_by_correlation(employee["sys_id"], conversation_id) if conversation_id else None
+    async with _filing_lock(conversation_id):
+        return await _file_once(tool_context, employee, draft, conversation_id)
+
+
+# Two submits for the same request at the same moment (a double click, a retried turn) each have
+# their own copy of the session state, so neither sees the other's ticket number. In this process a
+# lock per request serializes them and remembers what was filed; across instances the correlation
+# id lookup inside the lock catches it.
+_FILING_LOCKS: dict[str, asyncio.Lock] = {}
+_FILED: dict[str, dict] = {}
+
+
+def _filing_lock(key: str) -> asyncio.Lock:
+    if not key:
+        return asyncio.Lock()  # no session id (tests, local runs): nothing to share
+    if len(_FILING_LOCKS) > 2000:
+        for k in [k for k, lock in _FILING_LOCKS.items() if not lock.locked()][:1000]:
+            _FILING_LOCKS.pop(k, None)
+            _FILED.pop(k, None)
+    return _FILING_LOCKS.setdefault(key, asyncio.Lock())
+
+
+async def _file_once(tool_context: ToolContext, employee: dict, draft: dict, conversation_id: str) -> dict:
+    issue, device = draft["issue"], draft["device"]
+    existing = _FILED.get(conversation_id) if conversation_id else None
+    if not existing and conversation_id:
+        existing = await servicenow.find_open_by_correlation(employee["sys_id"], conversation_id)
     if existing:
         ticket = existing
     else:
@@ -882,6 +935,8 @@ async def submit_ticket(tool_context: ToolContext) -> dict:
         if watchers:
             fields["watch_list"] = ",".join(dict.fromkeys(watchers))
         ticket = await servicenow.create_incident(fields)
+        if conversation_id:
+            _FILED[conversation_id] = ticket
         # Filed: record it before anything else can fail, so a retry or a double click never
         # files twice and the user is never told it failed.
         draft["submitted_number"], draft["submitted_url"] = ticket["number"], ticket["url"]
@@ -1170,6 +1225,9 @@ async def _apply_changes(ctx: ToolContext, number: str, changes: list[dict], not
         return ticket
     if changes and ticket.get("caller_id") and ticket["caller_id"] != employee["sys_id"]:
         return await _follower_request(ctx, employee, ticket, changes, note)
+    # Changes that can't apply to this ticket at all are explained, not reported as refused.
+    skipped = [(ch, reason) for ch in changes if (reason := ch.get("precheck", lambda t: "")(ticket))]
+    changes = [ch for ch in changes if not any(ch is c for c, _ in skipped)]
     fields: dict = {}
     for ch in changes:
         fields.update(ch["fields"](ticket) if callable(ch["fields"]) else ch["fields"])
@@ -1197,6 +1255,8 @@ async def _apply_changes(ctx: ToolContext, number: str, changes: list[dict], not
         parts.append("Your note was added.")
     if applied:
         parts.append("Done: " + "; ".join(f"{c['label'].lower()} set to {c['requested']}" for c in applied) + ".")
+    for ch, reason in skipped:
+        parts.append(f"{ch['label']} not changed: {reason}.")
     if not_applied:
         parts.append("Not changed due to ServiceNow policy: "
                      + "; ".join(f"{c['label'].lower()} to {c['requested']}" for c in not_applied)
@@ -1206,6 +1266,7 @@ async def _apply_changes(ctx: ToolContext, number: str, changes: list[dict], not
         "note_added": bool(note.strip()),
         "changed": [{"change": c["label"], "value": c["requested"]} for c in applied],
         "not_permitted_note_added": [{"change": c["label"], "value": c["requested"]} for c in not_applied],
+        "not_applicable": [{"change": c["label"], "value": c["requested"], "reason": r} for c, r in skipped],
     }
     result["ticket"] = await _show_ticket(ctx, updated, " ".join(parts))
     return result
@@ -1250,9 +1311,18 @@ async def update_ticket(number: str, tool_context: ToolContext, note: str = "", 
         def ship_fields(ticket, a=address):
             new = replace_ship_to(ticket["description"], a)
             return {"description": new} if new else {}
-        changes.append(_change("Ship-to address", address, ship_fields,
-                               lambda t, a=address: f"Ship to: {a}" in t["description"]))
-        note = (note + "\n" if note else "") + f"Shipping address changed by the requester to: {address}"
+
+        def no_ship_line(ticket):
+            if "Ship to:" in (ticket.get("description") or ""):
+                return ""
+            if not (ticket.get("description") or "").strip():
+                return "the ticket's details are in its notes, so the service desk will update the address"
+            return "this ticket has no shipping address (equipment is repaired on site)"
+        change = _change("Ship-to address", address, ship_fields,
+                         lambda t, a=address: f"Ship to: {a}" in t["description"])
+        change["precheck"] = no_ship_line
+        changes.append(change)
+        note = (note + "\n" if note else "") + f"The requester asked to ship the replacement to: {address}"
     if not changes and not note.strip():
         return {"status": "error", "message": "Nothing to change was given."}
     return await _apply_changes(tool_context, number, changes, note)

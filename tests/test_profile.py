@@ -118,6 +118,13 @@ def test_env_file_never_overrides(tmp_path, monkeypatch):
 @pytest.mark.parametrize("fields, message", [
     ({"caller_id": "x"}, "set by the agent itself"),
     ({"subcategory": "{device_typ}"}, "unknown placeholder"),
+    ({"u_x": "{}"}, "positional"),
+    ({"u_x": "{0}"}, "positional"),
+    ({"u_x": "{device_type.upper}"}, "plain name"),
+    ({"u_x": "{device_type[0]}"}, "plain name"),
+    ({"u_x": "{device_type:>10}"}, "format"),
+    ({"u_x": "{device_type"}, "brace"),
+    ({"u_x": "oops }"}, "brace"),
 ])
 def test_ticket_field_mistakes_are_named(tmp_path, fields, message):
     data = _hospital()
@@ -145,3 +152,22 @@ def test_urgency_matrix_needs_every_level(tmp_path):
     data["servicenow"]["urgency_matrix"].pop("low")
     with pytest.raises(profile.ProfileError, match="low"):
         profile.load(_write(tmp_path, data))
+
+
+@pytest.mark.parametrize("field, text, message", [
+    ("charged_replacement", "Charged to {department}", "unknown placeholder"),
+    ("charged_replacement", "Charged to {}", "positional"),
+    ("refresh", "Refresh for {cost_center}", "none here"),
+])
+def test_recommendation_placeholders_are_checked(tmp_path, field, text, message):
+    data = _hospital()
+    data["service"].setdefault("recommendations", {})[field] = text
+    with pytest.raises(profile.ProfileError, match=message):
+        profile.load(_write(tmp_path, data))
+
+
+def test_literal_braces_are_allowed(tmp_path):
+    data = _hospital()
+    data["servicenow"]["ticket_fields"] = {"u_note": "{{fixed}} {device_type}"}
+    rendered = profile.load(_write(tmp_path, data)).servicenow.render_fields({"device_type": "laptop"})
+    assert rendered["u_note"] == "{fixed} laptop"

@@ -111,6 +111,27 @@ def _default_matrix() -> dict:
     return {k: ImpactUrgency(impact=i, urgency=u) for k, (i, u) in pairs.items()}
 
 
+def check_template(template: str, allowed: set[str], where: str) -> None:
+    """A text with {placeholders}: only named ones from `allowed`, no positional `{}` or `{0}`, no
+    `{a.b}` / `{a[0]}`, balanced braces. Raises ValueError naming `where`, so a profile that loads
+    can always be filled in."""
+    try:
+        parsed = list(string.Formatter().parse(template))
+    except ValueError as exc:
+        raise ValueError(f"{where}: {exc} (write a literal brace as {{{{ or }}}})") from None
+    for _, name, spec, conversion in parsed:
+        if name is None:
+            continue
+        if name == "" or name.isdigit():
+            raise ValueError(f"{where}: positional placeholder {{{name}}}; use a name: {sorted(allowed) or 'none here'}")
+        if not name.isidentifier():
+            raise ValueError(f"{where}: placeholder {{{name}}} must be a plain name: {sorted(allowed) or 'none here'}")
+        if name not in allowed:
+            raise ValueError(f"{where}: unknown placeholder {{{name}}}; use {sorted(allowed) or 'none here'}")
+        if spec or conversion:
+            raise ValueError(f"{where}: placeholder {{{name}}} can't have a format (':' or '!')")
+
+
 class ServiceNowSettings(_Strict):
     ticket_category: str = Field("hardware", min_length=1, description="incident.category for every ticket")
     asset_tables: list[str] = Field(["alm_hardware"], min_length=1, description="Tables searched for devices")
@@ -129,10 +150,7 @@ class ServiceNowSettings(_Strict):
         if clash:
             raise ValueError(f"{clash} are set by the agent itself and can't be configured")
         for field_name, template in value.items():
-            names = {f for _, f, _, _ in string.Formatter().parse(template) if f}
-            unknown = sorted(names - TEMPLATE_KEYS)
-            if unknown:
-                raise ValueError(f"{field_name}: unknown placeholder(s) {unknown}; use {sorted(TEMPLATE_KEYS)}")
+            check_template(template, TEMPLATE_KEYS, field_name)
         return value
 
     @field_validator("urgency_matrix")
@@ -173,6 +191,12 @@ class Recommendations(_Strict):
     charged_replacement: str = "Replacement, charged to {cost_center}"
     warranty_repair: str = "Warranty repair with a loaner device"
     repair_assessment: str = "Repair assessment; replace if repair is uneconomical"
+
+    @model_validator(mode="after")
+    def _placeholders(self):
+        for name, text in self:
+            check_template(text, {"cost_center"} if name == "charged_replacement" else set(), name)
+        return self
 
 
 class Service(_Strict):
