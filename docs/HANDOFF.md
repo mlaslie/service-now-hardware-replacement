@@ -36,6 +36,8 @@ buttons; mobile: numbered text after a "Desktop or Mobile App?" question) for `j
 | 09-30 | Adoption kit: `.env` settings, organization profile, setup.sh, docs + HTML site, `sn_doctor` role matrix |
 | 10-01 | README overview rewritten (also in the HTML docs); demo users made generic and configurable (Jane/John Doe, `demo_role`, `demo/build_demo.py`); agent-card updates by editing the agent in GE (no re-add) |
 | 10-01 | Ticket field mapping + `sn_profile.py`; model-routing evals (found and fixed a dropped-problem bug); custom role `u_hardware_requester` created and measured; Jane moved to it; registration screenshots; README overview rewritten |
+| 10-02 | Full code review (4 parallel reviewers); backlog section H; H0 fixes deployed (revision 00031): substring address swap, query injection via ticket numbers/serials, followers changing others' tickets, empty mobile text on v0.8, error after filing, follower-list rule in the custom role |
+| 10-03 | H1-H3 robustness and tests; `app/tools/` package; card wording in `config/messages.yaml`; profile `features` + `requester_changes`; D1, D6, D8-D12, F5, F7; docs set (decisions, user guide, runbook, privacy, costs, troubleshooting, customize, changelog); `scripts/smoke.py`, `print_registration.py`, `ops/observability.sh`; fuzzing harness (`fuzz/`) |
 
 ---
 
@@ -277,13 +279,17 @@ The prioritized backlog is `docs/BACKLOG.md` (section G = adoption kit, F = hosp
 
 1. **Manual testing in Gemini Enterprise** by the user (web + mobile; Jane = custom role, John = itil), with the
    personal run sheet `demo/DEMO.local.html` (`uv run python demo/build_demo.py`).
-2. **Next to build** (agreed order): G3.3 wording in `messages.yaml` (opens languages), G1.2 split `app/tools.py`
-   (1,300 lines), G3.12 customization recipes; F1 live pass; ticket table/catalog item option (rest of G3.7).
+2. **Needs a decision or a live system** (from `docs/BACKLOG.md`): personal identifiers in tracked docs and git
+   history (H2: keep, move to an untracked file, or rewrite history); re-run the custom role script in ServiceNow
+   for the follower rule (H0.6); F1 live pass; production access (F2/D4/D5: scripted REST API or Service Catalog
+   item); take out of service (F3, asset write); vendor contract on the card (F4, which fields); auto-submit (D2)
+   and loaner toggle (D3) are product choices; G2.5 registration through the API and the theme `iconUrl` (G3.2)
+   need a Gemini Enterprise check; G5 ideas.
 3. **Cleanup** (needs explicit user naming): secrets `servicenow-integration`, `servicenow-oauth`; Firestore DB
    `hardware-tickets`; ServiceNow clients "Hardware Replacement Agent" and "…Agent 2"; GE `a2a_probe` and
    `~/ADK/a2a-runtime-probe`. Keep `a2ui-v09-probe` (user's request).
 4. **Production hardening:** decide `u_hardware_requester` vs a scripted REST API / Service Catalog item with the
-   customer's ServiceNow team (licensing); SSO between Google and ServiceNow; admin-account guard (D11).
+   customer's ServiceNow team (licensing); SSO between Google and ServiceNow.
 
 ---
 
