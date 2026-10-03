@@ -97,6 +97,32 @@ entry is one button:
 | `safety_text` | What a person reporting a safety concern is told (and what the ticket records) |
 | `recommendations` | Texts for each fulfilment recommendation; `{cost_center}` is filled in |
 
+## Wording (`config/messages.yaml`)
+
+Every text the cards show (titles, buttons, field labels, the desktop/mobile question, the
+confirmation) is a line in `config/messages.yaml`, by key:
+
+```yaml
+review.submit: Send to the service desk
+done.title: "Ticket {number} is in"
+display.ask: |-
+  Which app are you using?
+
+  1 = Phone
+
+  2 = Computer
+```
+
+A text may use only the `{placeholders}` its default uses (for example `done.title` has `{number}`);
+anything else is refused with the key named. Remove a line to get the built-in default
+(`app/messages.py`). Check after editing:
+
+```bash
+uv run python -m app.messages
+```
+
+Problem labels, the safety text and response targets stay in `config/organization.yaml`.
+
 ## Your ServiceNow's own options
 
 The agent has no ServiceNow credentials of its own, so it never reads choice lists at run time.
@@ -136,4 +162,4 @@ check with `uv run python -m app.profile`, deploy.
 **Use a different profile per environment.** `ORGANIZATION_PROFILE=config/examples/office.yaml` in `.env`.
 
 Not configurable yet (see `docs/BACKLOG.md` section G3): showing your ServiceNow choice lists
-directly, custom ticket fields, the desktop/mobile question wording, languages.
+directly, languages (one `messages.yaml` per language is the planned route).

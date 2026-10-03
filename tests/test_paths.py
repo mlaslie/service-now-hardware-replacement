@@ -93,7 +93,8 @@ class FakeTableAPI:
         if method == "GET" and sys_id:
             return {"result": dict(self._row(table, sys_id))}
         if method == "GET":
-            rows = [r for r in self.tables[table] if self._match(r, params.get("sysparm_query", ""))]
+            # A table this fake doesn't model (e.g. the journal) has no rows, as for a user who can't see it.
+            rows = [r for r in self.tables.get(table, []) if self._match(r, params.get("sysparm_query", ""))]
             return {"result": [dict(r) for r in rows[: int(params.get("sysparm_limit", 1000))]]}
         if method == "POST" and table == "incident":
             json = {k: v for k, v in json.items() if k not in self.refuse}  # as ServiceNow drops fields silently

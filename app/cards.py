@@ -18,6 +18,7 @@ import itertools
 import re
 import uuid
 
+from app.messages import M
 from app.profile import current as _current_profile
 
 PROFILE = _current_profile()
@@ -83,14 +84,14 @@ class Card:
             props["variant"] = "primary"
         return self._add("Button", props)
 
-    def field(self, label: str, value, missing: str = "Not provided") -> str:
+    def field(self, label: str, value, missing: str = "") -> str:
         """A 'Label: value' line. Empty values say so in words, never blank or "-"."""
-        return self.row([self.text(f"{label}:", "caption"), self.text(value or missing, "body")])
+        return self.row([self.text(f"{label}:", "caption"), self.text(value or missing or M("common.not_provided"), "body")])
 
     def header(self, step: int | None, title: str, subtitle: str = "") -> list[str]:
         ids = []
         if step:
-            ids.append(self.text(f"Step {step} of {TOTAL_STEPS}", "caption"))
+            ids.append(self.text(M("common.step", step=step, total=TOTAL_STEPS), "caption"))
         ids.append(self.text(title, "h3"))
         if subtitle:
             ids.append(self.text(subtitle, "body"))
@@ -153,9 +154,9 @@ def maker_model(device: dict) -> str:
 
 def _device_line(asset: dict) -> str:
     """Model, asset tag and serial: enough to check against the device itself."""
-    parts = [asset.get("model") or asset.get("device_type") or "Device", f"Tag {asset.get('asset_tag') or 'none'}"]
+    parts = [asset.get("model") or asset.get("device_type") or "Device", M("device.tag", tag=asset.get("asset_tag") or "none")]
     if asset.get("serial_number"):
-        parts.append(f"SN {asset['serial_number']}")
+        parts.append(M("device.serial", serial=asset["serial_number"]))
     return "  |  ".join(parts)
 
 
@@ -165,61 +166,59 @@ def _device_line(asset: dict) -> str:
 def device_picker(employee: dict, assets: list[dict]) -> list[dict]:
     c = Card()
     first = (employee.get("name") or "there").split(" ")[0]
-    kids = c.header(1, f"Hi {first}, what needs fixing?",
-                    "Choose one of your devices. For equipment or anything not listed, tell me its asset tag or "
-                    "serial number, send a photo of its sticker, or just say what it is and where.")
+    kids = c.header(1, M("picker.title", first_name=first), M("picker.subtitle"))
     for asset in assets:
         kids.append(c.button(_device_line(asset), "select_device", {"asset_tag": asset["asset_tag"]}))
-    kids.append(c.button("Equipment or another device", "different_device"))
-    kids.append(c.button("View my tickets", "list_tickets"))
-    kids += [c.divider(), c.text(f"Requesting as {employee.get('name', '')} ({employee.get('email', '')})  |  "
-                                 f"{employee.get('location', '')}", "caption")]
+    kids.append(c.button(M("picker.other_device"), "different_device"))
+    kids.append(c.button(M("common.view_tickets"), "list_tickets"))
+    kids += [c.divider(), c.text(M("picker.requesting_as", name=employee.get("name", ""), email=employee.get("email", ""),
+                                   location=employee.get("location", "")), "caption")]
     return c.build(kids)
 
 
 def device_choices(title: str, assets: list[dict]) -> list[dict]:
     """Several devices matched what the user described: let them pick."""
     c = Card()
-    kids = c.header(1, title, "Pick the one you mean, or tell me its asset tag or serial number.")
+    kids = c.header(1, title, M("choices.subtitle"))
     for asset in assets:
         where = asset.get("location") or asset.get("department") or ""
         label = _device_line(asset) + (f"  |  {where}" if where else "")
         kids.append(c.button(label, "select_device", {"asset_tag": asset["asset_tag"]}))
-    kids.append(c.button("None of these", "different_device", primary=False))
+    kids.append(c.button(M("common.none_of_these"), "different_device", primary=False))
     return c.build(kids)
 
 
 def confirm_device(device: dict, note: str = "") -> list[dict]:
     """Before anything else: is this the device in front of you?"""
     c = Card()
-    kids = c.header(1, "Is this the right device?", "Please check these details against the device itself.")
-    kids += [c.field("Model", maker_model(device)),
-             c.field("Asset tag", device.get("asset_tag")),
-             c.field("Serial", device.get("serial_number"))]
+    kids = c.header(1, M("confirm_device.title"), M("confirm_device.subtitle"))
+    kids += [c.field(M("field.model"), maker_model(device)),
+             c.field(M("field.asset_tag"), device.get("asset_tag")),
+             c.field(M("field.serial"), device.get("serial_number"))]
     if is_equipment(device):
-        kids += [c.field("Location", device.get("location")), c.field("Department", device.get("department"))]
-    kids.append(c.field("Belongs to", device.get("relation_text")))
+        kids += [c.field(M("field.location"), device.get("location")),
+                 c.field(M("field.department"), device.get("department"))]
+    kids.append(c.field(M("field.belongs_to"), device.get("relation_text")))
     if note:
         kids.append(c.text(note, "caption"))
-    kids.append(c.row([c.button("Yes, that's it", "confirm_device", {"correct": "yes"}),
-                       c.button("No, it's a different one", "confirm_device", {"correct": "no"}, primary=False)]))
+    kids.append(c.row([c.button(M("confirm_device.yes"), "confirm_device", {"correct": "yes"}),
+                       c.button(M("confirm_device.no"), "confirm_device", {"correct": "no"}, primary=False)]))
     return c.build(kids)
 
 
 def existing_tickets(device: dict, tickets: list[dict]) -> list[dict]:
     """Shared equipment is often reported by several people: offer to join the open ticket."""
     c = Card()
-    kids = c.header(None, "This is already reported",
-                    f"{_device_label(device)} has an open ticket. Add what you're seeing to it and follow it, "
-                    "so you get the same updates, or report it separately if it's a different problem.")
+    kids = c.header(None, M("reported.title"), M("reported.subtitle", device=_device_label(device)))
     for t in tickets:
         kids += [c.divider(), c.text(f"{t['number']}  |  {t['state']}", "h5"), c.text(t["short_description"], "body"),
-                 c.text(" | ".join(filter(None, [f"Reported by {t.get('caller') or 'someone'} on {t['opened'][:10]}",
-                                                 f"Assigned to {t['assignment_group']}" if t.get("assignment_group")
-                                                 else "Not yet assigned"])), "caption")]
+                 c.text(" | ".join(filter(None, [M("reported.by", name=t.get("caller") or "someone", date=t["opened"][:10]),
+                                                 M("reported.assigned", group=t["assignment_group"])
+                                                 if t.get("assignment_group") else M("reported.unassigned")])),
+                        "caption")]
     first = tickets[0]["number"]
-    kids.append(c.row([c.button(f"Add my note to {first}", "follow_ticket", {"number": first}),
-                       c.button("Report separately", "report_separately", primary=False)]))
+    kids.append(c.row([c.button(M("reported.follow", number=first), "follow_ticket", {"number": first}),
+                       c.button(M("reported.separately"), "report_separately", primary=False)]))
     return c.build(kids)
 
 
@@ -229,11 +228,10 @@ def existing_tickets(device: dict, tickets: list[dict]) -> list[dict]:
 def issue_picker(device: dict, suggestion: str = "") -> list[dict]:
     c = Card()
     equipment = is_equipment(device)
-    where = f" in {device['location']}" if equipment and device.get("location") else ""
-    kids = c.header(2, "What's wrong with it?",
-                    f"{_device_label(device)}{where}. Pick the closest match, or just describe it in your own words.")
+    where = M("issue.where", location=device["location"]) if equipment and device.get("location") else ""
+    kids = c.header(2, M("issue.title"), M("issue.subtitle", device=_device_label(device), where=where))
     if suggestion and suggestion in ISSUE_LABELS:
-        kids.append(c.text(f"From your photo it looks like: {ISSUE_LABELS[suggestion]}", "caption"))
+        kids.append(c.text(M("issue.from_photo", issue=ISSUE_LABELS[suggestion]), "caption"))
     choices = EQUIPMENT_ISSUES if equipment else ISSUE_CATEGORIES
     buttons = [c.button(label, "select_issue", {"category": key})
                for key, label in choices]
@@ -248,24 +246,23 @@ def issue_picker(device: dict, suggestion: str = "") -> list[dict]:
 
 def photo_request(device: dict, issue_label: str, what_to_shoot: str, required: bool) -> list[dict]:
     c = Card()
-    kids = c.header(3, "Show me the problem",
-                    f"{issue_label} on {'the' if is_equipment(device) else 'your'} {device.get('model') or 'device'}. "
-                    "A photo lets the team fix it without a follow-up call.")
-    kids.append(c.text(f"Take a photo of: {what_to_shoot}", "body"))
-    kids.append(c.text("Use the attach (+) button in the chat to add the photo.", "caption"))
+    whose = M("photo.whose_equipment") if is_equipment(device) else M("photo.whose_personal")
+    kids = c.header(3, M("photo.title"), M("photo.subtitle", issue=issue_label, whose=whose,
+                                           device=device.get("model") or "device"))
+    kids.append(c.text(M("photo.what", what=what_to_shoot), "body"))
+    kids.append(c.text(M("common.attach_hint"), "caption"))
     if required:
-        kids.append(c.text("A photo is required for this kind of damage.", "caption"))
+        kids.append(c.text(M("photo.required"), "caption"))
     else:
-        kids.append(c.button("Skip the photo", "skip_photo", primary=False))
+        kids.append(c.button(M("photo.skip"), "skip_photo", primary=False))
     return c.build(kids)
 
 
 def label_photo_request() -> list[dict]:
     c = Card()
-    kids = c.header(1, "Let's identify the device",
-                    "Take a photo of the sticker with the asset tag or serial number. It's usually on the bottom of a laptop, the back of a monitor, or in Settings on a phone.")
-    kids.append(c.text("Use the attach (+) button in the chat to add the photo.", "caption"))
-    kids.append(c.button("I can't find a label", "no_label", primary=False))
+    kids = c.header(1, M("label.title"), M("label.subtitle"))
+    kids.append(c.text(M("common.attach_hint"), "caption"))
+    kids.append(c.button(M("label.none"), "no_label", primary=False))
     return c.build(kids)
 
 
@@ -276,16 +273,16 @@ def photo_findings(findings: dict, assets: list[dict], note: str) -> list[dict]:
     """Shown when a photo arrives before the device is known: what the photo
     showed, then the user's devices, the likely match first."""
     c = Card()
-    kids = c.header(None, "Here's what I found in your photo")
-    kids += [c.field("Device", " ".join(filter(None, [findings.get("manufacturer"), findings.get("model")]))
-                     or findings.get("device_type"), "Not recognized"),
-             c.field("Serial", findings.get("serial_number"), "Not visible in photo"),
-             c.field("Asset tag", findings.get("asset_tag"), "Not visible in photo")]
+    kids = c.header(None, M("findings.title"))
+    kids += [c.field(M("field.device"), " ".join(filter(None, [findings.get("manufacturer"), findings.get("model")]))
+                     or findings.get("device_type"), M("findings.not_recognized")),
+             c.field(M("field.serial"), findings.get("serial_number"), M("findings.not_visible")),
+             c.field(M("field.asset_tag"), findings.get("asset_tag"), M("findings.not_visible"))]
     if findings.get("damage_present"):
-        kids.append(c.field("Damage", findings.get("damage_description")))
+        kids.append(c.field(M("findings.damage"), findings.get("damage_description")))
     if note:
         kids.append(c.text(note, "caption"))
-    kids += [c.divider(), c.text("Which of your devices is this?", "h5")]
+    kids += [c.divider(), c.text(M("findings.which"), "h5")]
     maker = (findings.get("manufacturer") or "").lower()
     kind = (findings.get("device_type") or "").lower()
 
@@ -295,7 +292,7 @@ def photo_findings(findings: dict, assets: list[dict], note: str) -> list[dict]:
 
     for asset in sorted(assets, key=lambda a: not likely(a)):  # the likely match first
         kids.append(c.button(_device_label(asset), "select_device", {"asset_tag": asset["asset_tag"]}))
-    kids.append(c.button("None of these", "different_device", primary=False))
+    kids.append(c.button(M("common.none_of_these"), "different_device", primary=False))
     return c.build(kids)
 
 
@@ -306,65 +303,68 @@ def review(draft: dict, employee: dict) -> list[dict]:
     c = Card()
     device, issue = draft.get("device") or {}, draft.get("issue") or {}
     equipment = is_equipment(device)
-    kids = c.header(4, "Review your request", "Everything below was filled in for you. Submit, or tell me what to change.")
+    kids = c.header(4, M("review.title"), M("review.subtitle"))
 
-    kids += [c.text("Device", "h5"),
-             c.field("Model", device.get("model")),
-             c.field("Asset tag", device.get("asset_tag")),
-             c.field("Serial", device.get("serial_number"))]
+    kids += [c.text(M("review.section_device"), "h5"),
+             c.field(M("field.model"), device.get("model")),
+             c.field(M("field.asset_tag"), device.get("asset_tag")),
+             c.field(M("field.serial"), device.get("serial_number"))]
     if equipment:
-        kids += [c.field("Location", device.get("location")), c.field("Department", device.get("department"))]
+        kids += [c.field(M("field.location"), device.get("location")),
+                 c.field(M("field.department"), device.get("department"))]
     else:
-        kids.append(c.field("Coverage", (draft.get("eligibility") or {}).get("summary")))
+        kids.append(c.field(M("review.coverage"), (draft.get("eligibility") or {}).get("summary")))
     if device.get("relation_text") and device.get("relation") != "yours":
-        kids.append(c.field("Belongs to", device.get("relation_text")))
+        kids.append(c.field(M("field.belongs_to"), device.get("relation_text")))
 
-    kids += [c.divider(), c.text("Problem", "h5"),
-             c.field("Issue", ISSUE_LABELS.get(issue.get("category"), issue.get("category"))),
-             c.field("Details", issue.get("description")),
-             c.field("Requested priority", draft.get("priority", "3 - Moderate"))]
+    kids += [c.divider(), c.text(M("review.section_problem"), "h5"),
+             c.field(M("review.issue"), ISSUE_LABELS.get(issue.get("category"), issue.get("category"))),
+             c.field(M("review.details"), issue.get("description")),
+             c.field(M("review.priority"), draft.get("priority", "3 - Moderate"))]
     evidence = draft.get("evidence")
     if evidence:
-        kids.append(c.field("Photo evidence", evidence.get("summary")))
+        kids.append(c.field(M("review.evidence"), evidence.get("summary")))
 
     if equipment:
-        kids += [c.divider(), c.text("Repair", "h5"),
-                 c.field("Service", draft.get("recommendation")),
-                 c.field("Handled by", device.get("support_group"), "Service desk"),
-                 c.field("Bill to", device.get("cost_center") or device.get("department"), "Set by the service desk"),
-                 c.field("Reported by", f"{employee.get('name', '')} ({employee.get('email', '')})")]
+        kids += [c.divider(), c.text(M("review.section_repair"), "h5"),
+                 c.field(M("review.service"), draft.get("recommendation")),
+                 c.field(M("review.handled_by"), device.get("support_group"), M("review.service_desk")),
+                 c.field(M("review.bill_to"), device.get("cost_center") or device.get("department"),
+                         M("review.bill_to_desk")),
+                 c.field(M("review.reported_by"), f"{employee.get('name', '')} ({employee.get('email', '')})")]
     else:
         delivery = draft.get("delivery") or {}
         ship_to = delivery.get("address") or employee.get("location_address") or employee.get("location")
         if delivery.get("label"):
             ship_to = f"{delivery['label']}: {ship_to}"
-        kids += [c.divider(), c.text("Fulfilment", "h5"),
-                 c.field("Recommended", draft.get("recommendation")),
-                 c.field("Ship to", ship_to),
-                 c.field("Bill to", " / ".join(filter(None, [employee.get("cost_center"), employee.get("department")]))),
-                 c.field("Requested by", f"{employee.get('name', '')} ({employee.get('email', '')})")]
+        kids += [c.divider(), c.text(M("review.section_fulfilment"), "h5"),
+                 c.field(M("review.recommended"), draft.get("recommendation")),
+                 c.field(M("review.ship_to"), ship_to),
+                 c.field(M("review.bill_to"), " / ".join(filter(None, [employee.get("cost_center"),
+                                                                       employee.get("department")]))),
+                 c.field(M("review.requested_by"), f"{employee.get('name', '')} ({employee.get('email', '')})")]
     if PROFILE.is_safety(issue.get("category", "")):
-        kids.append(c.text(f"Safety: {SAFETY_TEXT}", "body"))
+        kids.append(c.text(M("review.safety", text=SAFETY_TEXT), "body"))
     for warning in draft.get("warnings") or []:
-        kids.append(c.text(f"Note: {warning}", "caption"))
+        kids.append(c.text(M("review.note", text=warning), "caption"))
 
     kids.append(c.row([
-        c.button("Submit request", "submit_ticket"),
-        c.button("Change something", "edit_request", primary=False),
+        c.button(M("review.submit"), "submit_ticket"),
+        c.button(M("review.change"), "edit_request", primary=False),
     ]))
     if not equipment:
         # Other places only on request: a click, never "looks good".
         delivery = draft.get("delivery") or {}
         for saved in draft.get("saved_addresses") or []:
             if saved["address"] != delivery.get("address"):
-                kids.append(c.button(f"Ship to {saved.get('label') or 'saved address'} instead: {saved['address']}",
+                kids.append(c.button(M("review.ship_saved", label=saved.get("label") or M("review.ship_saved_label"),
+                                       address=saved["address"]),
                                      "choose_ship_to", {"address": saved["address"]}, primary=False))
         if delivery.get("address"):
-            kids.append(c.button("Ship to my address on file instead", "choose_ship_to", {"address": ""},
-                                 primary=False))
+            kids.append(c.button(M("review.ship_on_file"), "choose_ship_to", {"address": ""}, primary=False))
     suggested = draft.get("suggested_device") or {}
     if suggested and suggested.get("asset_tag") != device.get("asset_tag"):
-        kids.append(c.button(f"Use {_device_label(suggested)} instead", "select_device",
+        kids.append(c.button(M("review.use_device", device=_device_label(suggested)), "select_device",
                              {"asset_tag": suggested["asset_tag"]}))
     return c.build(kids)
 
@@ -373,22 +373,21 @@ def confirmation(number: str, draft: dict) -> list[dict]:
     c = Card()
     device = draft.get("device") or {}
     equipment = is_equipment(device)
-    kids = c.header(None, f"Request {number} submitted",
-                    (f"{device.get('support_group') or 'The service desk'} will pick this up. " if equipment else
-                     "You'll get an email from the service desk. ") + "Ask me for updates any time.")
+    kids = c.header(None, M("done.title", number=number),
+                    M("done.equipment", group=device.get("support_group") or M("done.equipment_group")) if equipment
+                    else M("done.personal"))
     kids += [
-        c.field("Ticket", number),
-        c.field("Status", "New"),
-        c.field("Priority", draft.get("assigned_priority") or draft.get("priority")),
+        c.field(M("done.ticket"), number),
+        c.field(M("done.status"), M("done.status_new")),
+        c.field(M("done.priority"), draft.get("assigned_priority") or draft.get("priority")),
         *([c.text(draft["priority_note"], "caption")] if draft.get("priority_note") else []),
-        c.field("Device", (draft.get("device") or {}).get("model")),
-        c.field("Recommended", draft.get("recommendation")),
-        c.field("Expected", draft.get("sla")),
+        c.field(M("field.device"), (draft.get("device") or {}).get("model")),
+        c.field(M("review.recommended"), draft.get("recommendation")),
+        c.field(M("done.expected"), draft.get("sla")),
         c.divider(),
         c.text(SAFETY_TEXT if PROFILE.is_safety((draft.get("issue") or {}).get("category", "")) else
-               "If others report this equipment, they'll be offered to follow your ticket." if equipment else
-               "Before your replacement arrives, make sure your files are synced to cloud storage.", "caption"),
-        c.row([c.button("View my tickets", "list_tickets"), c.button("Start another request", "start_over")]),
+               M("done.equipment_tip") if equipment else M("done.personal_tip"), "caption"),
+        c.row([c.button(M("common.view_tickets"), "list_tickets"), c.button(M("done.another"), "start_over")]),
     ]
     return c.build(kids)
 
@@ -398,26 +397,24 @@ def confirmation(number: str, draft: dict) -> list[dict]:
 
 def ticket_list(tickets: list[dict], include_closed: bool, more: bool = False) -> list[dict]:
     c = Card()
-    title = "Your hardware tickets" if include_closed else "Your open hardware tickets"
-    kids = c.header(None, title)
+    kids = c.header(None, M("tickets.title_all") if include_closed else M("tickets.title_open"))
     if not tickets:
-        kids.append(c.text("You have no open hardware tickets." if not include_closed
-                           else "You have no hardware tickets yet.", "body"))
+        kids.append(c.text(M("tickets.none") if include_closed else M("tickets.none_open"), "body"))
     for t in tickets:
         kids += [c.divider(),
                  c.text(f"{t['number']}  |  {t['state']}", "h5"),
                  c.text(t["short_description"], "body"),
                  c.text(" | ".join(filter(None, [
-                     f"Opened {t['opened'][:10]}", f"Priority {PRIORITY_LABELS.get(t['priority'], t['priority'])}",
-                     f"Reported by {t.get('caller') or 'someone else'}, you're following" if t.get("following") else ""])),
+                     M("tickets.opened", date=t["opened"][:10]),
+                     M("tickets.priority", priority=PRIORITY_LABELS.get(t["priority"], t["priority"])),
+                     M("tickets.following", name=t.get("caller") or "someone else") if t.get("following") else ""])),
                      "caption"),
-                 c.button("Details", "view_ticket", {"number": t["number"]})]
+                 c.button(M("tickets.details"), "view_ticket", {"number": t["number"]})]
     if more:
-        kids += [c.divider(), c.text(f"Showing your {len(tickets)} most recent. Ask for any other ticket by its number.",
-                                     "caption")]
-    buttons = [c.button("Start a new request", "start_over")]
+        kids += [c.divider(), c.text(M("tickets.more", count=len(tickets)), "caption")]
+    buttons = [c.button(M("tickets.new_request"), "start_over")]
     if not include_closed:
-        buttons.insert(0, c.button("Include closed", "list_all_tickets", primary=False))
+        buttons.insert(0, c.button(M("tickets.include_closed"), "list_all_tickets", primary=False))
     kids.append(c.row(buttons))
     return c.build(kids)
 
@@ -434,12 +431,12 @@ def ticket_detail(t: dict, notes: list[dict] | None = None, note: str = "", view
     """
     c = Card()
     kids = c.header(None, f"{t['number']}: {t['short_description']}")
-    kids += [c.field("Status", t["state"]),
-             c.field("Priority", PRIORITY_LABELS.get(t["priority"], t["priority"])),
-             c.field("Opened", t["opened"][:16]),
-             c.field("Last updated", t["updated"][:16]),
-             c.field("Assigned to", " / ".join(filter(None, [t.get("assignment_group"), t.get("assigned_to")])),
-                     "Not yet assigned")]
+    kids += [c.field(M("ticket.status"), t["state"]),
+             c.field(M("ticket.priority"), PRIORITY_LABELS.get(t["priority"], t["priority"])),
+             c.field(M("ticket.opened"), t["opened"][:16]),
+             c.field(M("ticket.updated"), t["updated"][:16]),
+             c.field(M("ticket.assigned"), " / ".join(filter(None, [t.get("assignment_group"), t.get("assigned_to")])),
+                     M("ticket.unassigned"))]
     if note:
         kids += [c.divider(), c.text(note, "body")]
 
@@ -447,30 +444,30 @@ def ticket_detail(t: dict, notes: list[dict] | None = None, note: str = "", view
 
     def show_notes(entries: list[dict]) -> None:
         for n in entries:
-            header = " ".join(filter(None, [n["when"][:16], n["who"], "(work note)" if n["kind"] != "note" else ""]))
+            header = " ".join(filter(None, [n["when"][:16], n["who"], M("ticket.work_note") if n["kind"] != "note" else ""]))
             if header:  # an empty Text renders as "(empty)" in Gemini Enterprise
                 kids.append(c.text(header, "caption"))
             kids.append(c.text(n["text"] or "-", "body"))
 
     if view == "last_note":
-        kids += [c.divider(), c.text("Latest note", "h5")]
-        show_notes(notes[:1]) if notes else kids.append(c.text("No notes yet.", "caption"))
+        kids += [c.divider(), c.text(M("ticket.latest_note"), "h5")]
+        show_notes(notes[:1]) if notes else kids.append(c.text(M("ticket.no_notes"), "caption"))
     elif view in ("notes", "details"):
         if view == "details" and t.get("description"):
-            kids += [c.divider(), c.text("Details", "h5")]
+            kids += [c.divider(), c.text(M("ticket.details"), "h5")]
             kids += [c.text(line, "caption") for line in t["description"].splitlines() if line.strip()]
-        kids += [c.divider(), c.text(f"Notes ({len(notes)})", "h5")]
-        show_notes(notes) if notes else kids.append(c.text("No notes yet.", "caption"))
+        kids += [c.divider(), c.text(M("ticket.notes_count", count=len(notes)), "h5")]
+        show_notes(notes) if notes else kids.append(c.text(M("ticket.no_notes"), "caption"))
 
     if view in ("status", "change"):
-        kids.append(c.row([c.button("Notes", "view_notes", {"number": t["number"]}),
-                           c.button("All details", "view_details", {"number": t["number"]})]))
+        kids.append(c.row([c.button(M("ticket.notes"), "view_notes", {"number": t["number"]}),
+                           c.button(M("ticket.all_details"), "view_details", {"number": t["number"]})]))
     if t.get("state_code") in ("1", "2", "3"):
-        kids.append(c.row([c.button("Add a note", "add_note", {"number": t["number"]}),
-                           c.button("Change ship-to", "change_shipping", {"number": t["number"]})]))
-        kids.append(c.row([c.button("Request urgent handling", "request_urgent", {"number": t["number"]}),
-                           c.button("Cancel request", "cancel_ticket", {"number": t["number"]}, primary=False)]))
-    kids.append(c.button("Back to my tickets", "list_tickets", primary=False))
+        kids.append(c.row([c.button(M("ticket.add_note"), "add_note", {"number": t["number"]}),
+                           c.button(M("ticket.change_shipping"), "change_shipping", {"number": t["number"]})]))
+        kids.append(c.row([c.button(M("ticket.urgent"), "request_urgent", {"number": t["number"]}),
+                           c.button(M("ticket.cancel"), "cancel_ticket", {"number": t["number"]}, primary=False)]))
+    kids.append(c.button(M("ticket.back"), "list_tickets", primary=False))
     return c.build(kids)
 
 
@@ -555,7 +552,7 @@ def to_text(messages: list[dict]) -> tuple[str, list[dict]]:
 
     walk("root")
     if options:
-        blocks.append(("para", "_Reply with a number, or just type your answer._"))
+        blocks.append(("para", f"_{M('text.reply_hint')}_"))
     out = ""
     for i, (kind, md) in enumerate(blocks):
         if i:

@@ -9,6 +9,7 @@ from google.adk.models import Gemini, LlmRequest, LlmResponse
 from google.genai import types
 
 from app import cards, config, inbound
+from app.messages import M
 from app.tools import ALL_TOOLS, CARD_KEY
 
 logger = logging.getLogger(__name__)
@@ -205,7 +206,7 @@ def render_staged_card(callback_context: CallbackContext, llm_response: LlmRespo
 
 
 # Blank lines: GE renders replies as markdown, which ignores single newlines.
-ASK_TEXT = "Are you on the Gemini Enterprise Desktop or Mobile App?\n\n1 = Mobile App\n\n2 = Desktop/Browser"
+ASK_TEXT = M("display.ask")  # config/messages.yaml
 
 
 def _last_user_text(llm_request: LlmRequest) -> str:
