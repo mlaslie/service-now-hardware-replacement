@@ -76,8 +76,23 @@ class Hibernating(ServiceNowError):
     """Developer instances hibernate when idle and answer with an HTML page."""
 
 
+class Unavailable(ServiceNowError):
+    """ServiceNow didn't answer in time, or couldn't be reached."""
+
+
 def _base() -> str:
     return config.SN_INSTANCE_URL.rstrip("/")
+
+
+_client: httpx.AsyncClient | None = None
+
+
+def _http() -> httpx.AsyncClient:
+    """One client for the process: connections (and TLS sessions) are reused across calls."""
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(timeout=20.0, limits=httpx.Limits(max_connections=20))
+    return _client
 
 
 async def _request(method: str, path: str, *, token: str | None = None, params: dict | None = None,
@@ -86,16 +101,30 @@ async def _request(method: str, path: str, *, token: str | None = None, params: 
     if not token:
         raise NotSignedIn()
     hdrs = {"Authorization": f"Bearer {token}", "Accept": "application/json", **(headers or {})}
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        r = await client.request(method, _base() + path, params=params, json=json, content=content, headers=hdrs)
+    where = f"{method} {path.split('?')[0]}"
+    try:
+        r = await _http().request(method, _base() + path, params=params, json=json, content=content, headers=hdrs)
+    except httpx.TimeoutException as exc:
+        raise Unavailable(f"{where}: ServiceNow did not answer in time") from exc
+    except httpx.TransportError as exc:
+        raise Unavailable(f"{where}: ServiceNow could not be reached ({type(exc).__name__})") from exc
     if r.status_code == 401:
         raise NotSignedIn()
-    if "json" not in r.headers.get("content-type", ""):
-        raise Hibernating("ServiceNow returned a non-JSON page; the instance may be hibernating.")
+    is_json = "json" in r.headers.get("content-type", "")
+    try:
+        body = r.json() if is_json and r.content else {}
+    except ValueError:
+        body, is_json = {}, False
     if r.status_code >= 400:
-        detail = (r.json().get("error") or {}).get("message", r.text[:200])
-        raise ServiceNowError(f"{method} {path.split('?')[0]} -> {r.status_code}: {detail}")
-    return r.json()
+        detail = ((body.get("error") or {}).get("message") if isinstance(body, dict) else "") or \
+            f"HTTP {r.status_code}" + ("" if is_json else " (non-JSON page)")
+        if not is_json and "hibernat" in r.text[:2000].lower():
+            raise Hibernating("ServiceNow returned a hibernation page; the instance is waking up.")
+        raise ServiceNowError(f"{where} -> {r.status_code}: {detail}")
+    if not is_json:
+        # A 200 HTML page: developer instances answer like this while hibernating or waking up.
+        raise Hibernating("ServiceNow returned a non-JSON page; the instance may be hibernating.")
+    return body if isinstance(body, dict) else {"result": body}
 
 
 def _value(field) -> str:

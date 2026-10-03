@@ -43,6 +43,14 @@ class EndUser:
         return {**asdict(self), "verified": self.verified}
 
 
+def mask_email(email: str | None) -> str:
+    """For logs: enough to tell people apart, not the address ("j***@example.com")."""
+    if not email:
+        return "-"
+    name, _, domain = email.partition("@")
+    return f"{name[:1]}***@{domain}" if domain else f"{name[:1]}***"
+
+
 def bearer(headers: dict) -> str | None:
     value = headers.get("authorization") or headers.get("Authorization")
     if not value or not value.lower().startswith("bearer "):
@@ -66,6 +74,6 @@ async def resolve_end_user(token: str | None) -> EndUser:
     except Exception as exc:  # noqa: BLE001 - never log the token or the exception text
         logger.warning("ServiceNow identity lookup failed: %s", type(exc).__name__)
         return EndUser(email="", problem="servicenow_unavailable")
-    logger.info("resolved end user %s (%s)", profile["email"] or profile["user_name"], profile["sys_id"])
+    logger.info("resolved end user %s (%s)", mask_email(profile["email"] or profile["user_name"]), profile["sys_id"])
     return EndUser(email=profile["email"], name=profile["name"], sys_id=profile["sys_id"],
                    source="servicenow", profile=profile)

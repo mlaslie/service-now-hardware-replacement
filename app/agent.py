@@ -181,6 +181,10 @@ def render_staged_card(callback_context: CallbackContext, llm_response: LlmRespo
         return None
     card = callback_context.state.get(CARD_KEY)
     if not card:
+        if callback_context.state.get(inbound.UI_OPTIONS_KEY):
+            # A reply without a card (a question, an error): the last card's numbers no longer
+            # apply, so a later "1" must not click an old button.
+            callback_context.state[inbound.UI_OPTIONS_KEY] = []
         return None
     callback_context.state[CARD_KEY] = None
     intro = " ".join(p.text for p in content.parts if p.text and not p.thought).strip()

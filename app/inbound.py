@@ -80,6 +80,30 @@ def action_text(action: dict) -> str:
     return f"[UI action] {name} {json.dumps(action_context(action))}"
 
 
+PHOTO_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic", "image/heif"}
+MAX_PHOTO_BYTES = 15 * 1024 * 1024
+
+
+async def _stage_photo(encoded: str, mime: str, upload, photos: list[dict]) -> str:
+    """Saves one photo and returns the text the model sees. A photo that can't be read or saved
+    never fails the turn: the user's words still go through, with a note about the photo."""
+    try:
+        data = base64.b64decode(encoded, validate=False)
+    except (ValueError, TypeError):
+        return "[A photo was attached but could not be read. Ask the user to attach it again.]"
+    if not data:
+        return "[A photo was attached but was empty. Ask the user to attach it again.]"
+    if len(data) > MAX_PHOTO_BYTES:
+        return f"[A photo was too large ({len(data) // (1024 * 1024)} MB; the limit is 15 MB). Ask for a smaller one.]"
+    try:
+        photo = await upload(data, mime)
+    except Exception as exc:  # noqa: BLE001  (storage outage, permissions)
+        logger.warning("photo could not be saved: %s", type(exc).__name__)
+        return "[A photo was attached but could not be saved. Ask the user to attach it again in a minute.]"
+    photos.append(photo)
+    return f"[Photo attached: {photo['photo_id']}]"
+
+
 async def rewrite_parts(parts: list[Part], upload) -> tuple[list[Part], list[dict]]:
     """Returns the parts the model should see, and the photos that were staged.
 
@@ -98,14 +122,15 @@ async def rewrite_parts(parts: list[Part], upload) -> tuple[list[Part], list[dic
         elif isinstance(root, FilePart):
             f = root.file
             mime = (getattr(f, "mime_type", None) or "").lower()
-            if isinstance(f, FileWithBytes) and mime.startswith("image/"):
-                photo = await upload(base64.b64decode(f.bytes), mime)
-                photos.append(photo)
-                out.append(Part(root=TextPart(text=f"[Photo attached: {photo['photo_id']}]")))
+            if isinstance(f, FileWithBytes) and mime in PHOTO_TYPES:
+                out.append(Part(root=TextPart(text=await _stage_photo(f.bytes, mime, upload, photos))))
             elif isinstance(f, FileWithBytes):
-                out.append(Part(root=TextPart(text=f"[Unsupported attachment ignored: {mime or 'unknown type'}]")))
+                out.append(Part(root=TextPart(text=f"[Unsupported attachment ignored: {mime or 'unknown type'}. "
+                                                   "Photos can be JPEG, PNG, WebP or HEIC.]")))
             else:
-                out.append(part)
+                # A link instead of the file's bytes: the model can't open it (and errors on some schemes).
+                out.append(Part(root=TextPart(text="[An attachment arrived as a link, which can't be opened. "
+                                                   "Ask the user to attach the photo again.]")))
         elif isinstance(root, DataPart) and isinstance(root.data, dict):
             action = parse_user_action(root.data)
             if action:
@@ -139,15 +164,49 @@ UI_OPTIONS_KEY = "ui_options"      # numbered options of the last text card
 ASK_MARKER = "[Ask display mode]"
 SHOW_CURRENT = "[UI action] show_current_step {}"
 
-_YES = {"1", "mobile", "mobile app", "app", "phone", "1 = mobile app", "1 mobile app", "yes", "y"}
-_NO = {"2", "desktop", "browser", "desktop/browser", "web", "computer", "laptop", "2 = desktop/browser", "2 desktop", "no", "n"}
+UI_ASKS_KEY = "ui_asks"            # how many times the question was asked without an answer
+
+_MOBILE_WORDS = {"mobile", "phone", "iphone", "android", "ipad", "tablet", "cell", "cellphone", "smartphone"}
+_DESKTOP_WORDS = {"desktop", "browser", "web", "computer", "laptop", "pc", "mac", "chrome", "edge", "safari", "firefox"}
+_FILLER = {"i", "i'm", "im", "am", "on", "the", "my", "a", "an", "using", "use", "it's", "its", "from", "via", "in",
+           "app", "version", "option", "gemini", "enterprise", "is", "it", "i'll", "ill", "be", "and"}
+_ANSWER_NUMBER = re.compile(r"^\s*(?:option\s*|#|\()?\s*([12])\s*(?:[.):=\-]|\b)")
 _TO_TEXT = {"text", "text mode", "switch to text", "use text", "numbers"}
 _TO_CARDS = {"buttons", "cards", "button mode", "switch to buttons", "use buttons", "show buttons"}
 _NUMBER = re.compile(r"^\s*(?:option\s*|#)?(\d{1,2})\s*[.)]?\s*$", re.IGNORECASE)
+_MAX_ASKS = 3  # after this many unanswered asks, use text (works in both apps; "buttons" switches)
 
 
 def _norm(text: str) -> str:
     return re.sub(r"[\s.!?]+$", "", " ".join(text.lower().split()))
+
+
+def _words(said: str) -> list[str]:
+    return re.findall(r"[a-z0-9']+", said)
+
+
+def display_answer(text: str) -> tuple[str | None, bool]:
+    """("text" | "cards" | None, whether the reply said anything besides the answer).
+
+    Accepts "1", "1)", "1 - mobile", "option 2", "I'm on desktop", "on my phone"... but not a
+    message that mentions both, or a longer message about something else."""
+    said = _norm(text)
+    words = _words(said)
+    if not words or len(words) > 8:
+        return None, False
+    number = _ANSWER_NUMBER.match(said)
+    mobile = bool(_MOBILE_WORDS & set(words))
+    desktop = bool(_DESKTOP_WORDS & set(words))
+    if number:
+        chosen = "text" if number.group(1) == "1" else "cards"
+        if (chosen == "text" and desktop) or (chosen == "cards" and mobile):
+            return None, False  # "1 desktop": contradictory
+    elif mobile != desktop:
+        chosen = "text" if mobile else "cards"
+    else:
+        return None, False
+    extra = [w for w in words if w not in _FILLER | _MOBILE_WORDS | _DESKTOP_WORDS and not w.isdigit()]
+    return chosen, bool(extra)
 
 
 def display_step(state: dict, text: str) -> tuple[str, dict]:
@@ -162,16 +221,21 @@ def display_step(state: dict, text: str) -> tuple[str, dict]:
     if mode in (None, "", "asking"):
         if is_click:  # only the web app can click
             return text, {UI_MODE_KEY: "cards"}
-        if mode == "asking" and (said in _YES or said in _NO):
-            chosen = "text" if said in _YES else "cards"
-            pending = state.get(UI_PENDING_KEY) or ""
-            return pending or "Hello", {UI_MODE_KEY: chosen, UI_PENDING_KEY: ""}
+        pending = state.get(UI_PENDING_KEY) or ""
         if mode == "asking":
+            chosen, extra = display_answer(text)
+            if chosen:
+                # "I'm on my phone, the screen is cracked": the rest is part of the request too.
+                replay = f"{pending}\n{text}".strip() if extra else pending
+                return replay or "Hello", {UI_MODE_KEY: chosen, UI_PENDING_KEY: "", UI_ASKS_KEY: 0}
+            asks = int(state.get(UI_ASKS_KEY) or 1) + 1
+            if asks >= _MAX_ASKS:
+                # Still no answer: text works in both apps (and "buttons" switches on desktop).
+                return f"{pending}\n{text}".strip(), {UI_MODE_KEY: "text", UI_PENDING_KEY: "", UI_ASKS_KEY: 0}
             # Not an answer: keep the first message, but a photo or a longer
             # message sent now also counts as what they want.
-            pending = state.get(UI_PENDING_KEY) or ""
-            return ASK_MARKER, {UI_PENDING_KEY: f"{pending}\n{text}".strip()}
-        return ASK_MARKER, {UI_MODE_KEY: "asking", UI_PENDING_KEY: text}
+            return ASK_MARKER, {UI_PENDING_KEY: f"{pending}\n{text}".strip(), UI_ASKS_KEY: asks}
+        return ASK_MARKER, {UI_MODE_KEY: "asking", UI_PENDING_KEY: text, UI_ASKS_KEY: 1}
 
     if said in _TO_TEXT and mode != "text":
         return SHOW_CURRENT, {UI_MODE_KEY: "text"}

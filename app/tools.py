@@ -116,6 +116,10 @@ def servicenow_errors(fn):
                     "reconnect ServiceNow for this agent in Gemini Enterprise, then try again."}
         except servicenow.Hibernating:
             return {"status": "error", "message": "ServiceNow is waking up. Ask the user to try again in a minute."}
+        except servicenow.Unavailable as exc:
+            logger.warning("ServiceNow unavailable in %s: %s", fn.__name__, exc)
+            return {"status": "error", "message": "ServiceNow didn't respond, so this step may not have "
+                    "completed. Ask the user to try again in a minute (a retry never files a second ticket)."}
         except servicenow.ServiceNowError as exc:
             logger.warning("ServiceNow call failed in %s: %s", fn.__name__, exc)
             return {"status": "error", "message": f"ServiceNow refused the request ({exc}). "

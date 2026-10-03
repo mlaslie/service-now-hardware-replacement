@@ -2,21 +2,47 @@
 the replayed first message, numbered replies and the text rendering of cards."""
 
 from app import cards, inbound
-from app.inbound import ASK_MARKER, UI_MODE_KEY, UI_OPTIONS_KEY, UI_PENDING_KEY, display_step
+import pytest
+
+from app.inbound import ASK_MARKER, UI_ASKS_KEY, UI_MODE_KEY, UI_OPTIONS_KEY, UI_PENDING_KEY, display_step
 
 
 def test_first_message_asks_and_is_kept():
     text, delta = display_step({}, "My laptop screen is cracked")
     assert text == ASK_MARKER
-    assert delta == {UI_MODE_KEY: "asking", UI_PENDING_KEY: "My laptop screen is cracked"}
+    assert delta == {UI_MODE_KEY: "asking", UI_PENDING_KEY: "My laptop screen is cracked", UI_ASKS_KEY: 1}
 
 
-def test_yes_picks_text_and_replays_the_first_message():
+@pytest.mark.parametrize("answer, mode", [
+    ("1", "text"), ("Mobile App", "text"), ("mobile!", "text"), ("phone", "text"), ("1)", "text"),
+    ("1 - mobile", "text"), ("1 = Mobile App", "text"), ("Option 1", "text"), ("I'm on my phone", "text"),
+    ("on the mobile app", "text"), ("(1)", "text"), ("1.", "text"),
+    ("2", "cards"), ("2 = Desktop/Browser", "cards"), ("I'm on desktop", "cards"), ("browser", "cards"),
+    ("option 2", "cards"), ("Using Chrome on my laptop", "cards"), ("#2", "cards"),
+])
+def test_an_answer_picks_the_mode_and_replays_the_first_message(answer, mode):
     state = {UI_MODE_KEY: "asking", UI_PENDING_KEY: "My laptop screen is cracked\n[Photo attached: ph_1]"}
-    for answer in ("1", "Mobile App", "mobile!", "phone"):
-        text, delta = display_step(state, answer)
-        assert text == state[UI_PENDING_KEY]
-        assert delta == {UI_MODE_KEY: "text", UI_PENDING_KEY: ""}
+    text, delta = display_step(state, answer)
+    assert text == state[UI_PENDING_KEY]
+    assert delta == {UI_MODE_KEY: mode, UI_PENDING_KEY: "", UI_ASKS_KEY: 0}
+
+
+@pytest.mark.parametrize("reply", ["yes", "no", "1 desktop", "2 mobile", "phone or desktop?",
+                                   "my laptop screen is cracked and the battery is swollen too, help"])
+def test_not_an_answer_asks_again(reply):
+    text, delta = display_step({UI_MODE_KEY: "asking", UI_PENDING_KEY: "hi", UI_ASKS_KEY: 1}, reply)
+    assert text == ASK_MARKER and delta[UI_ASKS_KEY] == 2
+
+
+def test_an_answer_with_more_keeps_the_rest_of_the_message():
+    text, delta = display_step({UI_MODE_KEY: "asking", UI_PENDING_KEY: "hi"}, "phone, screen cracked")
+    assert delta[UI_MODE_KEY] == "text" and text == "hi\nphone, screen cracked"
+
+
+def test_after_three_unanswered_asks_text_mode_is_used():
+    state = {UI_MODE_KEY: "asking", UI_PENDING_KEY: "screen cracked", UI_ASKS_KEY: 2}
+    text, delta = display_step(state, "what?")
+    assert text == "screen cracked\nwhat?" and delta[UI_MODE_KEY] == "text"
 
 
 def test_no_picks_cards():
@@ -26,7 +52,7 @@ def test_no_picks_cards():
 
 def test_other_reply_while_asking_asks_again_and_keeps_it():
     text, delta = display_step({UI_MODE_KEY: "asking", UI_PENDING_KEY: "hi"}, "[Photo attached: ph_2]")
-    assert text == ASK_MARKER and delta == {UI_PENDING_KEY: "hi\n[Photo attached: ph_2]"}
+    assert text == ASK_MARKER and delta == {UI_PENDING_KEY: "hi\n[Photo attached: ph_2]", UI_ASKS_KEY: 2}
 
 
 def test_a_click_means_the_web_app():
@@ -110,3 +136,20 @@ def test_mobile_text_is_the_same_whatever_a2ui_version_was_negotiated():
     text, options = render("0.8")
     assert (text, options) == render("0.9")
     assert "P1000" in text and "1." in text and len(options) >= 2
+
+
+def test_a_reply_without_a_card_clears_the_numbered_options():
+    from types import SimpleNamespace
+
+    from google.adk.models import LlmResponse
+    from google.genai import types
+
+    from app import agent
+
+    ctx = SimpleNamespace(state={agent.CARD_KEY: None, UI_MODE_KEY: "text",
+                                 UI_OPTIONS_KEY: [{"label": "Submit", "action": "submit_ticket", "context": {}}]})
+    reply = LlmResponse(content=types.Content(role="model", parts=[types.Part(text="What should the note say?")]))
+    assert agent.render_staged_card(ctx, reply) is None
+    assert ctx.state[UI_OPTIONS_KEY] == []
+    # So "1" is now just text, not a click on Submit.
+    assert display_step(ctx.state, "1") == ("1", {})

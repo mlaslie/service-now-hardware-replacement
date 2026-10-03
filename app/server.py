@@ -30,12 +30,13 @@ from google.adk.artifacts import GcsArtifactService
 from google.adk.memory import VertexAiMemoryBankService
 from google.adk.runners import Runner
 from google.adk.sessions import VertexAiSessionService
+from google.adk.sessions.base_session_service import GetSessionConfig
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from app import cards, config, inbound, servicenow
 from app.agent import root_agent
-from app.identity import bearer, resolve_end_user
+from app.identity import bearer, mask_email, resolve_end_user
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("hardware_replacement")
@@ -82,8 +83,9 @@ def client_signals(context: RequestContext, headers: dict) -> dict:
         "header_names": sorted(lower),
         "headers": {k: lower[k] for k in _SAFE_HEADERS if k in lower},
         "requested_extensions": sorted(context.requested_extensions or []),
-        "params_metadata": context.metadata or {},
-        "message_metadata": (message.metadata if message else None) or {},
+        # Keys only: metadata content is client-defined and may carry user data.
+        "params_metadata_keys": sorted(context.metadata or {}),
+        "message_metadata_keys": sorted((message.metadata if message else None) or {}),
         "message_extensions": (message.extensions if message else None) or [],
         "accepted_output_modes": getattr(context.configuration, "accepted_output_modes", None),
     }
@@ -116,7 +118,7 @@ async def preprocess(context: RequestContext) -> RequestContext:
         parts = await apply_display_mode(context_id, parts, state)
         context.message.parts = parts
         state[inbound.PHOTOS_KEY] = photos
-    logger.info("turn context=%s user=%s(%s) photos=%d", context.context_id, user.email or "-",
+    logger.info("turn context=%s user=%s(%s) photos=%d", context.context_id, mask_email(user.email),
                 user.source, len(state.get(inbound.PHOTOS_KEY) or []))
     return context
 
@@ -128,11 +130,17 @@ async def apply_display_mode(context_id: str, parts: list, state: dict) -> list:
     if not texts:
         return parts
     try:
+        # None on the first turn (no session yet). Only the state is needed, not the events.
         session = await session_service.get_session(
-            app_name=config.APP_NAME, user_id=adk_user_id(context_id), session_id=context_id)
-    except Exception as exc:  # first turn: the session doesn't exist yet
-        logger.info("no session yet for %s (%s)", context_id, type(exc).__name__)
-        session = None
+            app_name=config.APP_NAME, user_id=adk_user_id(context_id), session_id=context_id,
+            config=GetSessionConfig(num_recent_events=0))
+    except Exception as exc:  # noqa: BLE001
+        # A blip reading the session is not a first turn: asking "desktop or mobile?" again
+        # mid-conversation would overwrite the mode. Pass the message through unchanged.
+        logger.warning("session state not readable for %s (%s); display mode unchanged",
+                       context_id, type(exc).__name__)
+        state[UI_DELTA_KEY] = {}
+        return parts
     text, delta = inbound.display_step(dict(session.state) if session else {}, "\n".join(texts))
     state[UI_DELTA_KEY] = delta
     if delta:

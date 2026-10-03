@@ -68,3 +68,36 @@ def test_requested_a2ui_version_picks_the_highest():
     assert v(["https://a2ui.org/a2a-extension/a2ui/v0.9", "https://google.github.io/adk-docs/a2a/a2a-extension/"]) == "0.9"
     assert v(["https://a2ui.org/a2a-extension/a2ui/v0.8", "https://a2ui.org/a2a-extension/a2ui/v0.9"]) == "0.9"
     assert v([]) == ""
+
+
+def _photo(data=b"jpeg", mime="image/jpeg", raw=None):
+    encoded = raw if raw is not None else base64.b64encode(data).decode()
+    return Part(root=FilePart(file=FileWithBytes(bytes=encoded, mime_type=mime, name="IMG.jpg")))
+
+
+async def test_a_photo_that_cannot_be_saved_keeps_the_text():
+    async def broken(data, mime):
+        raise RuntimeError("GCS 503")
+
+    out, photos = await inbound.rewrite_parts([_text("screen is cracked"), _photo()], broken)
+    texts = [p.root.text for p in out]
+    assert texts[0] == "screen is cracked" and "could not be saved" in texts[1] and photos == []
+
+
+async def test_bad_photos_never_fail_the_turn():
+    upload, calls = _uploads()
+    parts = [_text("help"), _photo(raw="!!!not base64!!!"), _photo(b""), _photo(mime="image/svg+xml"),
+             _photo(b"x" * (inbound.MAX_PHOTO_BYTES + 1))]
+    out, photos = await inbound.rewrite_parts(parts, upload)
+    texts = " ".join(p.root.text for p in out)
+    assert photos == [] and calls == []
+    assert "Unsupported attachment" in texts and "too large" in texts and texts.startswith("help")
+
+
+async def test_a_file_sent_as_a_link_is_explained_not_passed_to_the_model():
+    from a2a.types import FileWithUri
+
+    upload, _ = _uploads()
+    part = Part(root=FilePart(file=FileWithUri(uri="blobstore://x/y", mime_type="image/jpeg", name="IMG.jpg")))
+    out, photos = await inbound.rewrite_parts([part], upload)
+    assert isinstance(out[0].root, TextPart) and "link" in out[0].root.text and photos == []

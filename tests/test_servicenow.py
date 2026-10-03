@@ -104,3 +104,52 @@ def test_journal_with_comments_label():
     assert [e["text"] for e in entries] == ["hurry up and ship me a new laptop",
                                             "Requested priority 1 - Critical; please review."]
     assert entries[0]["who"] == "John Doe" and entries[0]["kind"] == "note"
+
+
+# --- transport and error pages ------------------------------------------------------------
+
+import httpx  # noqa: E402
+
+
+def _serve(monkeypatch, handler):
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(servicenow, "_http", lambda: client)
+    monkeypatch.setattr(servicenow.config, "SN_INSTANCE_URL", "https://example.service-now.com")
+
+
+@pytest.mark.parametrize("handler, error", [
+    (lambda r: (_ for _ in ()).throw(httpx.ReadTimeout("slow")), servicenow.Unavailable),
+    (lambda r: (_ for _ in ()).throw(httpx.ConnectError("down")), servicenow.Unavailable),
+    (lambda r: httpx.Response(403, html="<html>Forbidden</html>"), servicenow.ServiceNowError),
+    (lambda r: httpx.Response(502, html="<html>Bad gateway</html>"), servicenow.ServiceNowError),
+    (lambda r: httpx.Response(503, html="<html>Your instance is hibernating</html>"), servicenow.Hibernating),
+    (lambda r: httpx.Response(200, html="<html>Waking up</html>"), servicenow.Hibernating),
+    (lambda r: httpx.Response(500, headers={"content-type": "application/json"}, content=b""), servicenow.ServiceNowError),
+    (lambda r: httpx.Response(200, headers={"content-type": "application/json"}, content=b"{not json"),
+     servicenow.Hibernating),
+    (lambda r: httpx.Response(401, json={}), servicenow.NotSignedIn),
+])
+async def test_every_failure_is_a_servicenow_error(monkeypatch, handler, error):
+    _serve(monkeypatch, handler)
+    with pytest.raises(error):
+        await servicenow._request("GET", "/api/now/table/incident", token="t")
+
+
+async def test_a_403_is_not_reported_as_hibernating(monkeypatch):
+    _serve(monkeypatch, lambda r: httpx.Response(403, html="<html>Forbidden</html>"))
+    with pytest.raises(servicenow.ServiceNowError) as err:
+        await servicenow._request("GET", "/api/now/table/incident", token="t")
+    assert not isinstance(err.value, servicenow.Hibernating) and "403" in str(err.value)
+
+
+async def test_soft_fail_readers_survive_a_timeout(monkeypatch):
+    _serve(monkeypatch, lambda r: (_ for _ in ()).throw(httpx.ReadTimeout("slow")))
+    servicenow.user_token.set("t")
+    assert await servicenow.open_incidents_for_ci("ci1") == []
+    assert await servicenow.dropped_fields("s1", {"subcategory": "cpu"}) == {}
+
+
+async def test_json_error_message_is_kept(monkeypatch):
+    _serve(monkeypatch, lambda r: httpx.Response(403, json={"error": {"message": "ACL denied"}}))
+    with pytest.raises(servicenow.ServiceNowError, match="ACL denied"):
+        await servicenow._request("GET", "/api/now/table/incident", token="t")

@@ -17,7 +17,7 @@ pass), rest of G3.7 (ticket table / catalog item), then D ideas. Section C is fo
 A read-only review of the whole codebase (four parallel reviewers, the top findings re-checked by hand).
 Live revision `00030` at review time. Numbers match the review.
 
-### H0. Correctness and security (P0): **fixed 2026-10-02, tests added; deployed (revision 00031), not yet committed.
+### H0. Correctness and security (P0): **fixed 2026-10-02, tests added; deployed (revision 00031), committed `4b74c9a`.
 H0.6 also needs the create script re-run in ServiceNow (elevated).**
 - [x] **H0.1 Typed address swapped for a saved one** (`app/tools.py` `_canonical_place`/`_match_saved`): labels and
   aliases match as substrings, so "500 Warehouse Ave" -> Home ("house"), "1 Network Way" -> office ("work").
