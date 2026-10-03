@@ -7,7 +7,7 @@ from google.adk.tools import ToolContext
 
 from app import cards, servicenow
 from app.cards import ISSUE_LABELS
-from app.tools._common import _draft, _employee, _no_identity, _save, _show, servicenow_errors
+from app.tools._common import PROFILE, _draft, _employee, _no_identity, _save, _show, servicenow_errors
 from app.tools.addresses import _resolve_address, replace_ship_to
 from app.tools.review import _next_step
 
@@ -146,6 +146,14 @@ async def _apply_changes(ctx: ToolContext, number: str, changes: list[dict], not
         return ticket
     if changes and ticket.get("caller_id") and ticket["caller_id"] != employee["sys_id"]:
         return await _follower_request(ctx, employee, ticket, changes, note)
+    # Changes the organization leaves to the service desk (profile requester_changes) become a request note.
+    by_desk = [ch for ch in changes if not getattr(PROFILE.requester_changes, ch.get("policy", ""), True)]
+    if by_desk:
+        changes = [ch for ch in changes if not any(ch is d for d in by_desk)]
+        lines = "\n".join(f"- {ch['label']}: {ch['requested']}" for ch in by_desk)
+        note = (note.strip() + "\n\n" if note.strip() else "") + (
+            "The requester asked for the following through the Hardware Replacement agent. Changes like these are "
+            f"made by the service desk here. Please review:\n{lines}")
     # Changes that can't apply to this ticket at all are explained, not reported as refused.
     skipped = [(ch, reason) for ch in changes if (reason := ch.get("precheck", lambda t: "")(ticket))]
     changes = [ch for ch in changes if not any(ch is c for c, _ in skipped)]
@@ -178,6 +186,9 @@ async def _apply_changes(ctx: ToolContext, number: str, changes: list[dict], not
         parts.append("Done: " + "; ".join(f"{c['label'].lower()} set to {c['requested']}" for c in applied) + ".")
     for ch, reason in skipped:
         parts.append(f"{ch['label']} not changed: {reason}.")
+    if by_desk:
+        parts.append("Sent to the service desk, who make this change: "
+                     + "; ".join(f"{c['label'].lower()} to {c['requested']}" for c in by_desk) + ".")
     if not_applied:
         parts.append("Not changed due to ServiceNow policy: "
                      + "; ".join(f"{c['label'].lower()} to {c['requested']}" for c in not_applied)
@@ -188,6 +199,7 @@ async def _apply_changes(ctx: ToolContext, number: str, changes: list[dict], not
         "changed": [{"change": c["label"], "value": c["requested"]} for c in applied],
         "not_permitted_note_added": [{"change": c["label"], "value": c["requested"]} for c in not_applied],
         "not_applicable": [{"change": c["label"], "value": c["requested"], "reason": r} for c, r in skipped],
+        "requested_from_desk": [{"change": c["label"], "value": c["requested"]} for c in by_desk],
     }
     result["ticket"] = await _show_ticket(ctx, updated, " ".join(parts))
     return result
@@ -220,12 +232,12 @@ async def update_ticket(number: str, tool_context: ToolContext, note: str = "", 
         ch = _state_change(status, note) if status.strip().lower() in _USER_STATUSES else None
         if not ch:
             return {"status": "error", "message": f"Unknown status {status!r}. Use New, In Progress, On Hold or Resolved."}
-        changes.append(ch)
+        changes.append(ch | {"policy": "status"})
     if urgency:
         ch = _urgency_change(urgency)
         if not ch:
             return {"status": "error", "message": "Urgency must be low, normal, high or critical."}
-        changes.append(ch)
+        changes.append(ch | {"policy": "urgency"})
     if ship_to:
         address = " ".join(ship_to.split())
 
@@ -242,6 +254,7 @@ async def update_ticket(number: str, tool_context: ToolContext, note: str = "", 
         change = _change("Ship-to address", address, ship_fields,
                          lambda t, a=address: f"Ship to: {a}" in t["description"])
         change["precheck"] = no_ship_line
+        change["policy"] = "ship_to"
         changes.append(change)
         note = (note + "\n" if note else "") + f"The requester asked to ship the replacement to: {address}"
     if not changes and not note.strip():
@@ -303,7 +316,7 @@ async def cancel_ticket(number: str, reason: str, tool_context: ToolContext) -> 
             f"Only the person who reported {number} ({ticket.get('caller') or 'someone else'}) can cancel it. "
             "The user follows it. Offer to add a note instead, e.g. that it is working again.")}
     reason = f"Canceled by the requester. Reason: {reason.strip()}"
-    return await _apply_changes(tool_context, number, [_state_change("canceled", reason)], reason)
+    return await _apply_changes(tool_context, number, [_state_change("canceled", reason) | {"policy": "cancel"}], reason)
 
 
 @servicenow_errors

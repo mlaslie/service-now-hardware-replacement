@@ -8,6 +8,7 @@ from app import cards, memory, servicenow
 from app.cards import ISSUE_LABELS
 from app.profile import URGENCY_ORDER
 from app.tools._common import PROFILE, _PRIORITY, _save, _show
+from app.tools.addresses import saved_addresses
 from app.tools.devices import _asset_summary, _device_name
 
 def _refresh(draft: dict, employee: dict) -> dict:
@@ -92,7 +93,7 @@ async def _review(ctx: ToolContext, draft: dict, employee: dict) -> dict:
     draft = _refresh(draft, employee)
     if "saved_addresses" not in draft and not cards.is_equipment(draft.get("device") or {}):
         on_file = memory.normalize_address(employee.get("location_address", ""))
-        draft["saved_addresses"] = [a for a in await memory.saved_addresses(employee.get("email", ""))
+        draft["saved_addresses"] = [a for a in await saved_addresses(employee.get("email", ""))
                                     if memory.normalize_address(a["address"]) != on_file][:3]
     _save(ctx, draft)
     _show(ctx, cards.review(draft, employee))
@@ -105,8 +106,15 @@ async def _review(ctx: ToolContext, draft: dict, employee: dict) -> dict:
 
 async def _next_step(ctx: ToolContext, draft: dict, employee: dict) -> dict:
     """Shows whichever step is still missing, so the wizard skips what is known."""
-    _save(ctx, draft)
     device, issue = draft.get("device"), draft.get("issue")
+    if device and cards.is_equipment(device) and not PROFILE.features.equipment_reporting:
+        draft.pop("device", None)
+        _save(ctx, draft)
+        return {"status": "not_supported", "message": (
+            f"{_device_name(device)} is shared or clinical equipment, which this organization doesn't take through "
+            "this assistant. Tell the user to contact the service desk for equipment; offer to help with their own "
+            "devices.")}
+    _save(ctx, draft)
     if not device:
         assets = await servicenow.my_assets(employee["sys_id"])
         _show(ctx, cards.device_picker(employee, assets))
@@ -120,7 +128,8 @@ async def _next_step(ctx: ToolContext, draft: dict, employee: dict) -> dict:
             result["next"] = ("If the user's message already said what is wrong, call set_issue now, in this "
                               "turn: it is kept while they check the device. Never call confirm_device yourself.")
         return result
-    if cards.is_equipment(device) and device.get("ci") and not draft.get("duplicates_checked"):
+    if cards.is_equipment(device) and device.get("ci") and not draft.get("duplicates_checked") \
+            and PROFILE.features.follow_open_tickets:
         draft["duplicates_checked"] = True
         _save(ctx, draft)
         existing = await servicenow.open_incidents_for_ci(device["ci"])

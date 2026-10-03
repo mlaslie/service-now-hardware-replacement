@@ -18,6 +18,7 @@ import warnings
 from google.adk.tools import ToolContext
 
 from app import config
+from app.profile import current as _profile
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ def _service(ctx: ToolContext):
 async def recall(ctx: ToolContext, email: str, limit: int = 8) -> list[str]:
     """Facts remembered about this person. Never fails the turn."""
     service = _service(ctx)
-    if not service or not email:
+    if not service or not email or not _profile().features.memory:
         return []
     try:
         result = await asyncio.wait_for(
@@ -92,7 +93,7 @@ def _list_addresses(email: str) -> list[dict]:
 
 async def saved_addresses(email: str) -> list[dict]:
     """The person's saved permanent delivery addresses: [{"label", "address"}]. Never fails."""
-    if not email:
+    if not email or not _profile().features.saved_addresses:
         return []
     try:
         found = await asyncio.wait_for(asyncio.to_thread(_list_addresses, email), timeout=8)
@@ -123,7 +124,7 @@ def _save_address(email: str, label: str, address: str) -> None:
 
 async def save_address(email: str, label: str, address: str) -> None:
     """Remembers a permanent delivery address, verbatim. Never fails the turn."""
-    if not email or not address:
+    if not email or not address or not _profile().features.saved_addresses:
         return
     try:
         await asyncio.wait_for(asyncio.to_thread(_save_address, email, label, address), timeout=10)
@@ -142,7 +143,7 @@ async def remember_conversation(ctx: ToolContext, email: str) -> None:
     """
     service = _service(ctx)
     session = ctx.session
-    if not service or not email or not session:
+    if not service or not email or not session or not _profile().features.memory:
         return
     try:
         await asyncio.wait_for(service.add_events_to_memory(

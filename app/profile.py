@@ -223,6 +223,25 @@ class Service(_Strict):
         return value
 
 
+class Features(_Strict):
+    """Switch parts of the agent off. Everything is on by default (today's behaviour)."""
+    equipment_reporting: bool = Field(True, description="Report shared and clinical equipment, not just own devices")
+    photo_analysis: bool = Field(True, description="Read photos with the model (label, damage); off = attached as-is")
+    follow_open_tickets: bool = Field(True, description="Offer to follow an open ticket on the same equipment")
+    saved_addresses: bool = Field(True, description="Remember and offer permanent delivery addresses")
+    memory: bool = Field(True, description="Recall preferences and history across conversations (Memory Bank)")
+    ask_display_mode: bool = Field(True, description="Ask desktop or mobile on the first turn; off = cards only")
+
+
+class RequesterChanges(_Strict):
+    """What requesters may change on their own tickets themselves. A change that is off is added to
+    the ticket as a note asking the service desk to make it."""
+    urgency: bool = True
+    status: bool = True
+    ship_to: bool = True
+    cancel: bool = True
+
+
 class Profile(_Strict):
     organization: str = Field(min_length=1)
     agent: Agent
@@ -231,6 +250,8 @@ class Profile(_Strict):
     devices: Devices
     issues: Issues
     service: Service
+    features: Features = Field(default_factory=Features)
+    requester_changes: RequesterChanges = Field(default_factory=RequesterChanges)
 
     # --- derived views the code uses -----------------------------------------------
 

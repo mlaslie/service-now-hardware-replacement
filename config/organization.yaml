@@ -145,3 +145,21 @@ service:
     charged_replacement: "Replacement, charged to {cost_center}"
     warranty_repair: Warranty repair with a loaner device
     repair_assessment: Repair assessment; replace if repair is uneconomical
+
+# Parts of the agent that can be switched off (all on by default).
+features:
+  equipment_reporting: true   # shared and clinical equipment, not only people's own devices
+  photo_analysis: true        # read photos with the model (label, damage); off = attached for the desk as-is
+  follow_open_tickets: true   # "already reported": offer to follow the open ticket on the same equipment
+  saved_addresses: true       # remember and offer permanent delivery addresses
+  memory: true                # recall preferences and history across conversations
+  ask_display_mode: true      # ask desktop or mobile on the first turn; off = cards only (web-only organizations)
+
+# What requesters may change on their own tickets themselves. Off = the change is added to the ticket
+# as a note asking the service desk to make it.
+requester_changes:
+  urgency: true
+  status: true      # reopen, put on hold, resolve
+  ship_to: true
+  cancel: true
+

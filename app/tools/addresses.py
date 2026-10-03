@@ -6,6 +6,7 @@ Temporary places (hotels, events) are used once and never saved or suggested.
 import re
 
 from app import memory
+from app.tools._common import PROFILE
 
 _TEMPORARY = re.compile(r"\b(hotel|motel|inn|suites|resort|lodge|marriott|hilton|hyatt|sheraton|westin|airbnb|"
                         r"conference|convention|event|airport|temporary|temp)\b", re.I)
@@ -58,11 +59,16 @@ def _set_delivery(draft: dict, address: str = "", label: str = "", kind: str = "
     draft["delivery_location"] = address
 
 
+async def saved_addresses(email: str) -> list[dict]:
+    """The person's saved permanent addresses, unless the organization switched saved addresses off."""
+    return await memory.saved_addresses(email) if PROFILE.features.saved_addresses else []
+
+
 async def _resolve_address(email: str, text: str, label: str = "", kind: str = "",
                            saved: list[dict] | None = None) -> dict:
     """{"address", "label", "kind", "saved"} for what the user asked, or {"error": ...}."""
     text = " ".join((text or "").split())
-    saved = saved if saved is not None else await memory.saved_addresses(email)
+    saved = saved if saved is not None else await saved_addresses(email)
     match = _match_saved(text, saved) or (_match_saved(label, saved) if label else None)
     if match:
         return {"address": match["address"], "label": match.get("label", ""), "kind": "permanent", "saved": True}

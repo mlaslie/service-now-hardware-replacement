@@ -10,7 +10,7 @@ from app import cards, memory, servicenow, vision
 from app.cards import ISSUE_LABELS
 from app.tools._common import PROFILE, _PRIORITY, _already_filed, _draft, _employee, _intake_draft, _new_draft, _no_identity, _save, _show, servicenow_errors
 from app.tools.devices import _asset_summary, _best_matches, _device_from_asset, _match_note, _nearby_assets, _query_words, _set_device, match_own_asset, normalize_tag
-from app.tools.addresses import _ADDRESS_ON_FILE, _looks_like_street_address, _match_saved, _resolve_address, _set_delivery
+from app.tools.addresses import saved_addresses, _ADDRESS_ON_FILE, _looks_like_street_address, _match_saved, _resolve_address, _set_delivery
 from app.tools.review import _next_step
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,8 @@ async def start_request(tool_context: ToolContext) -> dict:
     _save(tool_context, draft)
     tool_context.state["last_photo_ids"] = []
     result = await _next_step(tool_context, draft, employee)
-    remembered = await memory.recall(tool_context, employee["email"])  # addresses are filtered out
+    remembered = (await memory.recall(tool_context, employee["email"])  # addresses are filtered out
+                  if PROFILE.features.memory else [])
     return result | {"employee": {k: employee.get(k) for k in ("name", "department", "location")},
                      "remembered_about_user": remembered}
 
@@ -75,7 +76,7 @@ async def find_device(description: str, tool_context: ToolContext) -> dict:
         return {"status": "not_found", "message": "Nothing to search for; asked for the asset tag or a photo."}
     candidates = await _nearby_assets(employee)
     best = _best_matches(candidates, wanted)
-    if not best:
+    if not best and PROFILE.features.equipment_reporting:
         # Beyond their own area, e.g. a pump found in another department.
         for word in sorted(wanted, key=len, reverse=True)[:2]:
             candidates += await servicenow.search_assets(word)
@@ -165,6 +166,8 @@ async def analyze_photos(tool_context: ToolContext) -> dict:
         return {"status": "error", "message": "No new photo found. Ask the user to attach it again."}
 
     draft = _intake_draft(tool_context)
+    if not PROFILE.features.photo_analysis:
+        return await _photos_unread(tool_context, draft, employee, photos)
     hint = (draft.get("issue") or {}).get("description", "")
     results = await asyncio.gather(
         *(vision.analyze_photo(p["uri"], p["mime_type"], hint) for p in photos), return_exceptions=True
@@ -251,6 +254,21 @@ async def analyze_photos(tool_context: ToolContext) -> dict:
     return result | {"findings": summary}
 
 
+async def _photos_unread(tool_context: ToolContext, draft: dict, employee: dict, photos: list[dict]) -> dict:
+    """Photo analysis is switched off: the photos go on the ticket as they are, for the desk to look at."""
+    tool_context.state["last_photo_ids"] = []
+    draft.setdefault("photos", [])
+    for photo in photos:
+        draft["photos"].append({"uri": photo["uri"], "photo_id": photo["photo_id"], "filename": photo.get("filename", ""),
+                                "mime_type": photo["mime_type"], "findings": {}})
+    if not draft.get("evidence"):
+        draft["evidence"] = {"summary": f"{len(draft['photos'])} photo(s) attached for the service desk",
+                             "severity": "unknown", "category": "", "supports_replacement": False,
+                             "photo_uri": photos[-1]["uri"]}
+    result = await _next_step(tool_context, draft, employee)
+    return result | {"photos": len(photos), "analyzed": False}
+
+
 @servicenow_errors
 async def skip_photo(tool_context: ToolContext) -> dict:
     """The user chose not to add a photo. Moves on to the review step."""
@@ -325,7 +343,7 @@ async def choose_ship_to(address: str, tool_context: ToolContext) -> dict:
     if not address:
         _set_delivery(draft)
     else:
-        match = _match_saved(address, draft.get("saved_addresses") or await memory.saved_addresses(employee["email"]))
+        match = _match_saved(address, draft.get("saved_addresses") or await saved_addresses(employee["email"]))
         if not match:
             return {"status": "not_found", "message": "That saved address wasn't found. Ask for the full address."}
         _set_delivery(draft, match["address"], match.get("label", ""), "permanent", saved=True)

@@ -118,9 +118,10 @@ async def _file_once(tool_context: ToolContext, employee: dict, draft: dict, con
     draft["submitted_url"] = ticket["url"]
     _save(tool_context, draft)
     delivery = draft.get("delivery") or {}
-    if delivery.get("kind") == "permanent" and not delivery.get("saved"):
+    if delivery.get("kind") == "permanent" and not delivery.get("saved") and PROFILE.features.saved_addresses:
         await memory.save_address(employee["email"], delivery.get("label", ""), delivery["address"])
-    await memory.remember_conversation(tool_context, employee["email"])
+    if PROFILE.features.memory:
+        await memory.remember_conversation(tool_context, employee["email"])
     _show(tool_context, cards.confirmation(ticket["number"], draft))
     return {"status": "submitted", "ticket": ticket["number"], "priority": draft["assigned_priority"],
             "requested_priority": draft["priority"], "sla": draft["sla"]}

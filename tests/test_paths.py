@@ -929,3 +929,77 @@ async def test_ship_to_change_on_own_ticket_still_applies(sn):
     filed = await _file(ctx)
     result = await tools.update_ticket(filed["ticket"], ctx, ship_to="500 Warehouse Ave, Austin, TX 78701")
     assert result["changed"] == [{"change": "Ship-to address", "value": "500 Warehouse Ave, Austin, TX 78701"}]
+
+
+# --- organization switches (profile features / requester_changes) ---------------------------
+
+
+@pytest.fixture
+def switch(monkeypatch):
+    def set_(group, name, value):
+        monkeypatch.setattr(getattr(cards.PROFILE, group), name, value)
+    return set_
+
+
+async def test_equipment_reporting_off_keeps_to_own_devices(sn, switch):
+    switch("features", "equipment_reporting", False)
+    ctx = ctx_for(JANE)
+    result = await tools.select_device("CE-10421", ctx)
+    assert result["status"] == "not_supported" and not draft(ctx).get("device")
+    found = await tools.find_device("the MRI in radiology", ctx)
+    assert found["status"] == "not_found"
+
+
+async def test_follow_open_tickets_off_files_separately(sn, switch):
+    await _report_mri(ctx_for(JANE))
+    switch("features", "follow_open_tickets", False)
+    john = ctx_for(JOHN, session="sess-2")
+    await tools.select_device("CE-10421", john)
+    result = await tools.confirm_device(True, john)
+    assert result["step"] != "already_reported"
+
+
+async def test_photo_analysis_off_attaches_photos_unread(sn, switch, monkeypatch):
+    switch("features", "photo_analysis", False)
+    ctx = ctx_for()
+    await pick(ctx, "123456")
+    await tools.set_issue("cracked_screen", "Cracked", "normal", ctx)
+
+    async def never(*a, **kw):
+        raise AssertionError("the photo model must not be called")
+
+    send_photos(ctx, monkeypatch, damage())
+    monkeypatch.setattr(vision, "analyze_photo", never)
+    result = await tools.analyze_photos(ctx)
+    assert result["analyzed"] is False and result["step"] == "review"
+    assert draft(ctx)["photos"] and "attached for the service desk" in draft(ctx)["evidence"]["summary"]
+
+
+async def test_saved_addresses_off(sn, switch):
+    switch("features", "saved_addresses", False)
+    sn.saved[JANE_EMAIL] = [{"label": "Home", "address": HOME}]
+    ctx = ctx_for()
+    await _to_review(ctx)
+    assert "Ship to Home instead" not in card_text(ctx)
+
+
+@pytest.mark.parametrize("change, policy", [({"urgency": "high"}, "urgency"), ({"status": "On Hold"}, "status"),
+                                            ({"ship_to": "500 Warehouse Ave, Austin, TX 78701"}, "ship_to")])
+async def test_changes_left_to_the_desk_become_a_request(sn, switch, change, policy):
+    switch("requester_changes", policy, False)
+    ctx = ctx_for()
+    filed = await _file(ctx)
+    before = dict(sn.tables["incident"][0])
+    result = await tools.update_ticket(filed["ticket"], ctx, **change)
+    after = sn.tables["incident"][0]
+    assert result["requested_from_desk"] and not result["changed"]
+    assert {k: after[k] for k in ("urgency", "state", "description")} == {k: before[k] for k in ("urgency", "state", "description")}
+    assert "made by the service desk here" in after["comments_log"][-1]
+
+
+async def test_cancel_left_to_the_desk(sn, switch):
+    switch("requester_changes", "cancel", False)
+    ctx = ctx_for()
+    filed = await _file(ctx)
+    result = await tools.cancel_ticket(filed["ticket"], "found a spare", ctx)
+    assert sn.tables["incident"][0]["state"] != "8" and result["requested_from_desk"]

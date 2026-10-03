@@ -192,6 +192,8 @@ async def _nearby_assets(employee: dict) -> list[dict]:
     """The user's own devices and their department's equipment: where a fuzzy
     match or a description is most likely to point."""
     own = await servicenow.my_assets(employee["sys_id"])
+    if not PROFILE.features.equipment_reporting:
+        return own
     dept = await servicenow.department_assets(employee.get("department_id", ""))
     seen = {a["sys_id"] for a in own}
     return own + [a for a in dept if a["sys_id"] not in seen]

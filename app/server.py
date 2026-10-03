@@ -129,6 +129,10 @@ async def apply_display_mode(context_id: str, parts: list, state: dict) -> list:
     texts = [p.root.text for p in parts if getattr(p.root, "kind", "") == "text"]
     if not texts:
         return parts
+    if not cards.PROFILE.features.ask_display_mode:
+        # Web-only organizations: cards always, no first-turn question.
+        state[UI_DELTA_KEY] = {inbound.UI_MODE_KEY: "cards"}
+        return parts
     try:
         # None on the first turn (no session yet). Only the state is needed, not the events.
         session = await session_service.get_session(

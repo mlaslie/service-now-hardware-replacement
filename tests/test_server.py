@@ -105,3 +105,11 @@ async def test_photos_are_staged_not_sent_to_the_model(world):
     texts = [p.root.text for p in ctx.message.parts]
     assert texts == ["cracked\n[Photo attached: ph_1]"]  # one text part; no image bytes for the model
     assert ctx.call_context.state[inbound.PHOTOS_KEY][0]["uri"] == "gs://b/ph_1.jpg"
+
+
+async def test_no_display_question_when_switched_off(world, monkeypatch):
+    from app import cards
+    monkeypatch.setattr(cards.PROFILE.features, "ask_display_mode", False)
+    ctx = await server.preprocess(_context([_text("my screen is cracked")]))
+    assert ctx.message.parts[0].root.text == "my screen is cracked"
+    assert ctx.call_context.state[server.UI_DELTA_KEY] == {inbound.UI_MODE_KEY: "cards"}

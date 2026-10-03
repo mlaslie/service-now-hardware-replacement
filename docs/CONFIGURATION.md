@@ -97,6 +97,23 @@ entry is one button:
 | `safety_text` | What a person reporting a safety concern is told (and what the ticket records) |
 | `recommendations` | Texts for each fulfilment recommendation; `{cost_center}` is filled in |
 
+### `features`
+Switch parts of the agent off; all are on by default.
+
+| Field | Off means |
+|---|---|
+| `equipment_reporting` | Only people's own devices; shared and clinical equipment is sent to the service desk |
+| `photo_analysis` | Photos are attached to the ticket as they are; no model reads labels or damage |
+| `follow_open_tickets` | No "already reported" offer; every report is its own ticket |
+| `saved_addresses` | Delivery addresses are neither remembered nor offered |
+| `memory` | No recall of preferences or history across conversations |
+| `ask_display_mode` | No desktop/mobile question; cards always (for web-only organizations) |
+
+### `requester_changes`
+What requesters may change on their own tickets themselves: `urgency`, `status` (reopen, hold,
+resolve), `ship_to`, `cancel`. A change that is off is not attempted; it goes on the ticket as a note
+asking the service desk to make it, and the user is told so.
+
 ## Wording (`config/messages.yaml`)
 
 Every text the cards show (titles, buttons, field labels, the desktop/mobile question, the
