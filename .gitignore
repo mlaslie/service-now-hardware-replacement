@@ -8,3 +8,8 @@ demo/DEMO.local.html
 
 # Agent worktrees (local only)
 .claude/worktrees/
+
+# Fuzzing output (fuzz/run_all.py)
+fuzz/results/
+fuzz/report/
+fuzz/.hypothesis/
