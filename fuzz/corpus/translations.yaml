@@ -1,0 +1,43 @@
+# Phrase translations for the "translate" mutation (fuzz/model/generate.py): a phrase found in a
+# user turn (case-insensitive) is replaced by the same phrase in one language. Partial translation is
+# on purpose: people mix languages.
+es:
+  "won't turn on": "no enciende"
+  "wont turn on": "no enciende"
+  "my laptop": "mi portátil"
+  "the screen": "la pantalla"
+  "looks good": "se ve bien"
+  "submit": "envíalo"
+  "ship it to": "envíalo a"
+  "send it to": "mándalo a"
+  "my house": "mi casa"
+  "show my tickets": "muéstrame mis tickets"
+  "it won't turn on": "no prende"
+  "everything looks good": "todo está bien"
+de:
+  "won't turn on": "geht nicht an"
+  "my laptop": "mein Laptop"
+  "the screen": "der Bildschirm"
+  "looks good": "sieht gut aus"
+  "submit": "abschicken"
+  "ship it to": "schick es an"
+  "my house": "mein Haus"
+  "show my tickets": "zeig meine Tickets"
+fr:
+  "won't turn on": "ne s'allume pas"
+  "my laptop": "mon ordinateur portable"
+  "the screen": "l'écran"
+  "looks good": "c'est bon"
+  "submit": "envoie"
+  "ship it to": "envoie-le à"
+  "my house": "ma maison"
+  "everything looks good": "tout est bon"
+pt:
+  "won't turn on": "não liga"
+  "my laptop": "meu notebook"
+  "looks good": "está bom"
+  "submit": "enviar"
+ja:
+  "won't turn on": "電源が入りません"
+  "my laptop": "私のノートパソコン"
+  "looks good": "大丈夫です"

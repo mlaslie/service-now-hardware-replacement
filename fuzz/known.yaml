@@ -1,0 +1,26 @@
+# Invariant id -> the backlog item (docs/BACKLOG.md) that already tracks violations of it.
+# A violation of an invariant with a backlog id here shows as "known" in the report; with an empty
+# value it shows as "new". Add the id once a finding is in the backlog (e.g. "T7: H4.2").
+# The comments say which fixed item last hardened the code each invariant covers (for reference).
+# Parsed by fuzz/invariants.py without PyYAML: one "ID: value  # comment" per line.
+T1:   # hardened by H0.3 (followers can't change others' tickets), H0.6
+T2:   # hardened by H0.2 (ticket numbers validated)
+T3:   # hardened by H0.2 (encoded-query injection: numbers validated, tags/serials filtered)
+T4:   # hardened by H0.5, H1.11 (concurrent submits file one ticket)
+T5:   # hardened by H0.1 (typed address never swapped for a saved one)
+T6:
+T7:   # hardened by H1.1 (ServiceNow errors become ServiceNowError), H1.6
+T8:   # hardened by H1.13 (ship-to change reported honestly)
+C1:   # hardened by H0.4
+C2:   # hardened by H1.4 (stale options), H2 (markdown escaped in text mode)
+I1:   # hardened by H1.5 (photo failures don't fail the turn)
+I2:   # hardened by H1.2, H1.3
+P1:   # hardened by H1.8 (profile templates strictly validated)
+P2:   # hardened by H1.8
+S1:   # hardened by H1.1 (transport errors become ServiceNowError subclasses)
+S2:   # hardened by H2 (notes fallback)
+M1:
+M2:
+M3:
+M4:   # hardened by H1.11
+M5:
