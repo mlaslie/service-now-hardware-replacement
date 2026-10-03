@@ -1158,3 +1158,13 @@ async def test_nothing_is_filed_that_the_user_has_not_seen(sn):
     assert "Review your request" in card_text(ctx)
     ctx.invocation_id = "turn-3"                             # the user clicks Submit
     assert (await tools.submit_ticket(ctx))["status"] == "submitted"
+
+
+async def test_a_device_with_nothing_to_identify_it_is_not_filed(sn):
+    ctx = ctx_for()
+    await _to_review(ctx)
+    d = draft(ctx)
+    d["device"] = {**d["device"], "asset_tag": "", "serial_number": "", "model": ""}
+    ctx.state["draft"] = d
+    result = await tools.submit_ticket(ctx)
+    assert result["step"] == "choose_device" and not sn.tables["incident"]

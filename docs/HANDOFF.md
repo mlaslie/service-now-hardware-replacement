@@ -2,7 +2,7 @@
 
 Background for anyone (or any Claude session) picking this project up. It records what was
 built, where everything lives, what went wrong and how it was fixed, and what's still open.
-Last updated 2026-10-01. `main` at `ed535c3` (all pushed, nothing uncommitted); live Cloud Run revision `00031` (deployed 2026-10-02, includes the H0 review fixes, not yet committed).
+Last updated 2026-10-03. `main` at `ed535c3` (all pushed, nothing uncommitted); live Cloud Run revision `00031` (deployed 2026-10-02, includes the H0 review fixes, not yet committed).
 
 **No secret values are in this file.** Secrets are named with where they live.
 
@@ -37,6 +37,7 @@ buttons; mobile: numbered text after a "Desktop or Mobile App?" question) for `j
 | 10-01 | README overview rewritten (also in the HTML docs); demo users made generic and configurable (Jane/John Doe, `demo_role`, `demo/build_demo.py`); agent-card updates by editing the agent in GE (no re-add) |
 | 10-01 | Ticket field mapping + `sn_profile.py`; model-routing evals (found and fixed a dropped-problem bug); custom role `u_hardware_requester` created and measured; Jane moved to it; registration screenshots; README overview rewritten |
 | 10-02 | Full code review (4 parallel reviewers); backlog section H; H0 fixes deployed (revision 00031): substring address swap, query injection via ticket numbers/serials, followers changing others' tickets, empty mobile text on v0.8, error after filing, follower-list rule in the custom role |
+| 10-03 | Fuzzing: `fuzz/` (Hypothesis + 84 model conversations), 11 defects found and fixed, report published as a private artifact; evals 14/14 |
 | 10-03 | H1-H3 robustness and tests; `app/tools/` package; card wording in `config/messages.yaml`; profile `features` + `requester_changes`; D1, D6, D8-D12, F5, F7; docs set (decisions, user guide, runbook, privacy, costs, troubleshooting, customize, changelog); `scripts/smoke.py`, `print_registration.py`, `ops/observability.sh`; fuzzing harness (`fuzz/`) |
 
 ---

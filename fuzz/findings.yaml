@@ -120,3 +120,11 @@ findings:
     summary: Unfollowing (new feature F7 of the backlog) removes the user from the watch list; the invariant allowed only adding.
     fix: Harness (fuzz/invariants.py) now allows adding or removing yourself only.
     status: harness
+  - id: F11
+    invariant: T6
+    severity: P1
+    found_by: deterministic (chaos: a device record with every field blank)
+    summary: A request could be filed for a device with no asset tag, serial or model ("Device:" blank).
+    fix: submit_ticket asks for the device again when nothing identifies it.
+    where: app/tools/filing.py submit_ticket
+    status: fixed

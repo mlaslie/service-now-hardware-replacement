@@ -367,7 +367,7 @@ def build() -> str:
             + findings(violations, known_ids)
             + matrix(violations, det, model, known_ids, notes) + category_tables(det, violations) + model_table(model))
     return ("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
-            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Fuzz report</title>"
+            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Hardware Agent Fuzzing</title>"
             f"<style>{CSS}</style></head><body><main><button id=\"theme\" class=\"theme\" type=\"button\">Light / dark"
             f"</button>{body}<p class=\"note\">Rerun: <code>uv run --group dev pytest fuzz/deterministic -m fuzz -p "
             "no:cacheprovider</code> then <code>python fuzz/report.py</code>. How to read this: fuzz/README.md.</p>"

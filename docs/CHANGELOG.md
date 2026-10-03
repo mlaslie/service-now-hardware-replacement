@@ -8,6 +8,20 @@ update: `uv run python -m app.profile`, then `./scripts/deploy.sh`.
 
 ## 2026-10-03
 
+**Fixes from fuzzing** (`a5e2373` and the next commit, BACKLOG I)
+- Free text can't add a second "Ship to:" line; submit files only what the user saw on the review card
+  (a change after the review shows it again first); the reporter check fails closed; profile ServiceNow
+  names refuse query operators; tool arguments are coerced to their types; malformed ServiceNow answers
+  become clear errors; a device record with nothing to identify it is asked for again.
+- Action needed: deploy. If your profile's `ticket_category` or `asset_tables` contain characters other
+  than letters, digits, `_`, `-`, `.` or spaces, the profile now refuses to load: fix the value.
+
+**Optional features** (`e45e40d`, `1e94c10`, `1768748`, `9677f06`)
+- Profile `features` (switch parts off), `requester_changes`, `devices.category_types`,
+  `service.safety_event_url`, per-problem `self_help`; unfollow; "any news?" digest; own open ticket offered
+  for the same device; admin-account warning; repeated photos read once; `ticket_filed` log line.
+- Action needed: none (all off or unchanged by default). Optional: `./ops/observability.sh --apply`.
+
 **Card wording in `config/messages.yaml`** (`f35ce7b`, BACKLOG G3.3)
 - Every card text and the desktop/mobile question come from `app/messages.py` defaults, overridden
   by `config/messages.yaml` (or `MESSAGES_FILE`). Unknown keys, new placeholders and unbalanced

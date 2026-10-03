@@ -1,6 +1,7 @@
 # Fuzzing evaluation plan
 
-Planned 2026-10-03, alongside backlog section H. Goal: test the agent far beyond the hand-written
+Planned 2026-10-03, alongside backlog section H. **Built and run the same day:** results in
+`docs/BACKLOG.md` section I and `fuzz/findings.yaml`; how to run it in `fuzz/README.md`. Goal: test the agent far beyond the hand-written
 tests, locally, without touching a real ServiceNow or Gemini Enterprise, and publish the result as one
 easy-to-read HTML report.
 

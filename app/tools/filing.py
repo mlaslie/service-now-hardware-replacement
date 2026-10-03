@@ -27,6 +27,10 @@ async def submit_ticket(tool_context: ToolContext) -> dict:
         # A double click, or "submit" said twice: never file a duplicate.
         _show(tool_context, cards.confirmation(draft["submitted_number"], draft))
         return {"status": "already_submitted", "ticket": draft["submitted_number"]}
+    device = draft.get("device") or {}
+    if device and not any(device.get(k) for k in ("asset_tag", "serial_number", "model")):
+        # A device record with nothing to identify it by (a blank row from ServiceNow): ask again.
+        draft.pop("device", None)
     if not draft.get("device") or not (draft.get("issue") or {}).get("category"):
         return await _next_step(tool_context, draft, employee)
     draft = _refresh(draft, employee)

@@ -83,6 +83,24 @@ Truncation: ticket list says when there are more; group memberships read up to 5
 
 ---
 
+## I. Fuzzing (2026-10-03): **done**
+
+Plan: `docs/FUZZING_PLAN.md`. Harness: `fuzz/` (`fuzz/README.md`). Findings and fixes: `fuzz/findings.yaml`
+(shown at the top of the report).
+
+| | Baseline (`dd61d50`) | After fixes |
+|---|---|---|
+| Deterministic (Hypothesis, ci profile) | 42 of 117 failing | 117 of 117 passing |
+| Model (84 generated conversations, real Gemini, about $0.80) | 82 of 84 | 84 of 84 |
+
+11 defects fixed with regression tests (F1-F11: a second "Ship to:" line from free text, filing without the
+user seeing the changed review, a fail-open follower check, query operators in the profile, wrong-type tool
+arguments, details before a problem, fake text-mode options from a lone CR, odd click contexts, profile
+encoding and persona braces, malformed ServiceNow answers, a blank device record). 2 harness corrections.
+Rerun: `uv run --group dev python fuzz/run_all.py --with-model --workers 6 --budget-minutes 25`.
+
+---
+
 ## G. Adoption kit: easy to understand, install and customize
 
 Goal: another organization can read how the agent works in an hour, install it on their own
