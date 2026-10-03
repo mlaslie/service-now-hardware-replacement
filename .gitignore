@@ -5,3 +5,6 @@ __pycache__/
 seed/state/
 seed/users.json
 demo/DEMO.local.html
+
+# Agent worktrees (local only)
+.claude/worktrees/
