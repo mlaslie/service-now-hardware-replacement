@@ -200,7 +200,8 @@ def _exercise(p) -> None:
     session = SimpleNamespace(state={"end_user": {}, "draft": {}, "ui_mode": "cards", "a2ui_version": "0.9"},
                               app_name="hardware_replacement", user_id="u", id="s")
     ctx = SimpleNamespace(_invocation_context=SimpleNamespace(session=session, artifact_service=None), agent_name="a")
-    asyncio.run(inject_session_state(instruction, ctx))
+    if not callable(agent.root_agent.instruction):  # an instruction provider: ADK injects no {state} into it
+        asyncio.run(inject_session_state(instruction, ctx))
 
 
 @pytest.mark.invariants("P2")
@@ -306,5 +307,5 @@ def test_query_operators_in_servicenow_settings(field, value):
     data = copy.deepcopy(BASE)
     data["servicenow"][field] = [value] if field == "asset_tables" else value
     out = _smoke(data)
-    check(out["ok"], out.get("invariant") or "P2", f"profile loads with {field}={value!r}, then: {out['error'][:500]}",
+    check(out["ok"], out.get("invariant") or "P2", f"profile loads with {field}={value!r}, then: {out.get('error', '')[:500]}",
           steps=out.get("steps", [])[-4:])

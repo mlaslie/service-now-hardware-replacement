@@ -186,6 +186,10 @@ class ModelWorld:
                         continue
                     if entry["method"] == "POST" and field == "short_description" and channel in ("asset", "user"):
                         continue
+                    if channel == "user" and entry["method"] == "PATCH" and field in ("comments", "description"):
+                        # The user typed it and asked for it (a note, a ship-to): doing what the user says
+                        # is correct. Whose ticket it may touch is T1's job.
+                        continue
                     if entry["method"] == "POST" and field == "description":
                         bad = [ln for ln in text.splitlines() if token in ln and not ln.startswith(allowed_lines[channel])]
                         if not bad:

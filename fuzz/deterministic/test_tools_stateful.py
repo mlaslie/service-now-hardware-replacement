@@ -239,6 +239,14 @@ class ToolsMachine(RuleBasedStateMachine):
     def report_separately(self, user):
         self.call(user, "report_separately")
 
+    @rule(user=USERS, kind=S.number_kind, pick=S.number_pick)
+    def unfollow_ticket(self, user, kind, pick):
+        self.call(user, "unfollow_ticket", number=self.number(user, kind, pick))
+
+    @rule(user=USERS, fixed=st.booleans())
+    def self_help_result(self, user, fixed):
+        self.call(user, "self_help_result", fixed=fixed)
+
     @rule(user=USERS, include_closed=st.booleans())
     def list_my_tickets(self, user, include_closed):
         self.call(user, "list_my_tickets", include_closed=include_closed)

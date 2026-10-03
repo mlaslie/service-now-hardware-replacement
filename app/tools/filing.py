@@ -11,7 +11,7 @@ from google.adk.tools import ToolContext
 from app import cards, memory, servicenow
 from app.cards import ISSUE_LABELS
 from app.tools._common import PROFILE, _PRIORITY, _draft, _employee, _no_identity, _save, _show, servicenow_errors
-from app.tools.review import _next_step, _refresh
+from app.tools.review import _next_step, _refresh, review_signature
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +27,21 @@ async def submit_ticket(tool_context: ToolContext) -> dict:
         # A double click, or "submit" said twice: never file a duplicate.
         _show(tool_context, cards.confirmation(draft["submitted_number"], draft))
         return {"status": "already_submitted", "ticket": draft["submitted_number"]}
-    if not draft.get("device") or not draft.get("issue"):
+    if not draft.get("device") or not (draft.get("issue") or {}).get("category"):
         return await _next_step(tool_context, draft, employee)
     draft = _refresh(draft, employee)
     need, _ = PROFILE.photo_policy(draft["issue"]["category"])
     if need == "required" and not draft.get("evidence"):
         return await _next_step(tool_context, draft, employee)
+    seen = draft.get("reviewed") or {}
+    turn = getattr(tool_context, "invocation_id", "") or ""
+    if seen.get("sig") != review_signature(draft) or (turn and seen.get("turn") == turn):
+        # The user hasn't seen this version yet (it changed after the review card, or the card is only
+        # being shown in this same turn): show it, and file after they confirm.
+        result = await _next_step(tool_context, draft, employee)
+        return result | {"status": "needs_review", "message": (
+            "Not filed yet: the user hasn't seen the review card for this version of the request. It is "
+            "shown now; submit only after they confirm it.")}
 
     session_id = tool_context.session.id if tool_context.session else ""
     # One per request, not per conversation: a retried turn (e.g. the reply
@@ -244,7 +253,9 @@ def _ticket_description(draft: dict, employee: dict) -> str:
     if draft.get("warnings"):
         lines += ["", "Notes for the service desk:"] + [f"- {w}" for w in draft["warnings"]]
     lines += ["", "Filed by the Hardware Replacement agent in Gemini Enterprise, as the signed-in user."]
-    return "\n".join(lines)
+    # One field, one line: free text (the problem in the user's words, photo findings, names from
+    # ServiceNow) can't start a line of its own, e.g. a second "Ship to:" for the service desk.
+    return "\n".join(" ".join(str(line).split()) for line in lines)
 
 
 async def _attach_photos(ctx: ToolContext, incident_sys_id: str, draft: dict) -> None:

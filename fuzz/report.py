@@ -117,6 +117,45 @@ def tiles(det, model, violations, known_ids) -> str:
     return f'<div class="tiles">{"".join(out)}</div>'
 
 
+FINDINGS = FUZZ / "findings.yaml"
+
+
+def fixes(det, model) -> str:
+    """fuzz/findings.yaml: what earlier runs found and what was done, with the baseline next to now."""
+    try:
+        import yaml  # optional: the report still builds without PyYAML, just without this section
+        data = yaml.safe_load(FINDINGS.read_text(encoding="utf-8")) or {}
+    except Exception:  # noqa: BLE001
+        return ""
+    base = data.get("baseline") or {}
+    tests = (det or {}).get("tests", [])
+    now_det = Counter(t["outcome"] for t in tests)
+    s = (model or {}).get("summary") or {}
+    bd, bm = base.get("deterministic") or {}, base.get("model") or {}
+    compare = (
+        f'<table class="mini"><thead><tr><th></th><th>Baseline ({e(base.get("date", ""))}, {e(base.get("commit", ""))})</th>'
+        f'<th>Now</th></tr></thead><tbody>'
+        f'<tr><td>Deterministic tests failing</td><td class="num bad">{e(bd.get("failed", "–"))} of '
+        f'{e((bd.get("failed") or 0) + (bd.get("passed") or 0))}</td>'
+        f'<td class="num {"bad" if now_det["failed"] else "ok"}">{now_det["failed"]} of {sum(now_det.values())}</td></tr>'
+        f'<tr><td>Model conversations passing</td><td class="num">{e(bm.get("passed", "–"))} of {e(bm.get("total", "–"))}</td>'
+        f'<td class="num {"ok" if s and s.get("passed") == s.get("conversations") else "bad"}">'
+        f'{e(s.get("passed", "–"))} of {e(s.get("conversations", "–"))}</td></tr></tbody></table>')
+    kind = {"fixed": "ok", "harness": "muted", "open": "bad"}
+    rows = "".join(
+        f'<tr><td>{e(x.get("id"))}</td><td>{_badge(x.get("severity", ""), x.get("severity", ""))}</td>'
+        f'<td><code>{e(x.get("invariant"))}</code></td><td>{e(x.get("summary"))}<br><span class="note">Found by '
+        f'{e(x.get("found_by"))}</span></td><td>{e(x.get("fix"))}'
+        + (f'<br><code>{e(x.get("where"))}</code>' if x.get("where") else "")
+        + f'</td><td>{_badge(x.get("status", ""), kind.get(x.get("status"), ""))}</td></tr>'
+        for x in data.get("findings") or [])
+    counts = Counter(x.get("status") for x in data.get("findings") or [])
+    return (f'<section id="fixes"><h2>Findings and fixes</h2><p>{counts["fixed"]} defects found by fuzzing and '
+            f'fixed (each with a regression test), {counts["harness"]} harness corrections, {counts["open"]} open.</p>'
+            f'{compare}<table class="sortable"><thead><tr><th>ID</th><th>Severity</th><th>Invariant</th>'
+            f'<th>What was wrong</th><th>Fix</th><th>Status</th></tr></thead><tbody>{rows}</tbody></table></section>')
+
+
 def matrix(violations, det, model, known_ids, notes) -> str:
     counts = Counter(v["id"] for v in violations)
     tested = Counter()
@@ -324,7 +363,8 @@ def build() -> str:
     det, model = _load("deterministic.json"), _load("model.json")
     violations = read_violations()
     known_ids, notes = known(), known_notes()
-    body = (header(det, model) + tiles(det, model, violations, known_ids) + findings(violations, known_ids)
+    body = (header(det, model) + tiles(det, model, violations, known_ids) + fixes(det, model)
+            + findings(violations, known_ids)
             + matrix(violations, det, model, known_ids, notes) + category_tables(det, violations) + model_table(model))
     return ("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Fuzz report</title>"

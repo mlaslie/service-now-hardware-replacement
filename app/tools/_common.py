@@ -4,6 +4,7 @@ and turning ServiceNow failures into a sentence the model can say.
 
 import datetime as dt
 import functools
+import inspect
 import logging
 import uuid
 
@@ -98,10 +99,40 @@ def _no_identity(ctx: ToolContext) -> dict:
     return {"status": "error", "message": msg}
 
 
+_TRUE = {"true", "yes", "y", "1", "on"}
+
+
+def _coerce(fn, args: tuple, kwargs: dict) -> tuple[tuple, dict]:
+    """The model can send null, a number, a list or an object where a tool expects text or a yes/no
+    (ADK passes arguments through unchecked). Each argument becomes the type the tool declares."""
+    params = inspect.signature(fn).parameters
+    bound = inspect.signature(fn).bind_partial(*args, **kwargs)
+    for name, value in list(bound.arguments.items()):
+        kind = params[name].annotation
+        if kind is str and not isinstance(value, str):
+            if value is None:
+                value = params[name].default if isinstance(params[name].default, str) else ""
+            elif isinstance(value, (list, tuple)):
+                value = ", ".join(str(v) for v in value if v is not None)
+            elif isinstance(value, dict):
+                value = " ".join(str(v) for v in value.values() if isinstance(v, (str, int, float)))
+            else:
+                value = str(value)
+        elif kind is bool and not isinstance(value, bool):
+            value = str(value).strip().lower() in _TRUE if isinstance(value, (str, int, float)) else False
+        bound.arguments[name] = value
+    return bound.args, bound.kwargs
+
+
 def servicenow_errors(fn):
-    """Turns ServiceNow failures into a result the model can explain in one sentence."""
+    """Turns ServiceNow failures into a result the model can explain in one sentence, and arguments
+    of the wrong type into the declared type."""
     @functools.wraps(fn)
     async def wrapper(*args, **kwargs):
+        try:
+            args, kwargs = _coerce(fn, args, kwargs)
+        except TypeError as exc:  # a missing or unknown argument
+            return {"status": "error", "message": f"Wrong arguments for {fn.__name__}: {exc}"}
         try:
             return await fn(*args, **kwargs)
         except servicenow.NotSignedIn:

@@ -1126,3 +1126,35 @@ async def test_no_quick_checks_by_default(sn):
     await pick(ctx, "123456")
     result = await tools.set_issue("wont_power_on", "Dead", "normal", ctx)
     assert result["step"] == "review"
+
+
+async def test_a_ticket_without_a_readable_reporter_is_not_changed(sn, monkeypatch):
+    """Fail closed: if ServiceNow doesn't return the reporter, the change is a request, not an edit."""
+    ctx = ctx_for()
+    filed = await _file(ctx)
+    real = servicenow.my_incident
+
+    async def no_caller(user, number):
+        t = await real(user, number)
+        return t and {**t, "caller_id": ""}
+
+    monkeypatch.setattr(servicenow, "my_incident", no_caller)
+    before = sn.tables["incident"][0]["urgency"]
+    result = await tools.update_ticket(filed["ticket"], ctx, urgency="critical")
+    assert result["status"] == "not_permitted" and sn.tables["incident"][0]["urgency"] == before
+
+
+async def test_nothing_is_filed_that_the_user_has_not_seen(sn):
+    """A change after the review card, then "looks good, send it" in one turn: the new review is shown
+    first, and the ticket is filed on the next confirmation (fuzz finding M2, typos-laptop)."""
+    ctx = ctx_for()
+    ctx.invocation_id = "turn-1"
+    await _to_review(ctx)                                   # review card shown in turn 1
+    ctx.invocation_id = "turn-2"
+    await tools.update_request(ctx, category="battery", urgency="critical")   # changed in turn 2
+    await tools.skip_photo(ctx)                              # new review staged in turn 2
+    result = await tools.submit_ticket(ctx)                  # ... and submit in the same turn
+    assert result["status"] == "needs_review" and not sn.tables["incident"]
+    assert "Review your request" in card_text(ctx)
+    ctx.invocation_id = "turn-3"                             # the user clicks Submit
+    assert (await tools.submit_ticket(ctx))["status"] == "submitted"

@@ -1,0 +1,122 @@
+# What the fuzzing found, and what was done about it. Shown at the top of the report.
+# status: fixed (app changed, regression test added), harness (the harness was wrong, fixed there),
+#         open (not fixed yet).
+
+baseline:
+  date: 2026-10-03
+  commit: dd61d50
+  deterministic: {passed: 75, failed: 42}
+  model: {passed: 82, total: 84, cost_usd: 0.83}
+
+findings:
+  - id: F1
+    invariant: T5/T8
+    severity: P0
+    found_by: deterministic (free text with a "Ship to:" line)
+    summary: >-
+      A line starting "Ship to:" in the problem description or the photo's damage description added a
+      second ship-to line to the ticket; a later ship-to change then edited the wrong line and was
+      reported as done.
+    fix: Free text is kept to one line in the ticket body; ship-to changes edit the agent's own (last) line.
+    where: app/tools/filing.py _ticket_description, app/tools/addresses.py replace_ship_to
+    status: fixed
+  - id: F2
+    invariant: M2
+    severity: P0
+    found_by: model (typos-laptop)
+    summary: >-
+      After a change brought back the photo step, "looks good, send it" skipped the photo and filed in
+      the same turn, so the user never saw the updated review (category and urgency had changed).
+    fix: >-
+      submit_ticket files only what the user has seen: the review card for this exact request, shown in an
+      earlier turn. Otherwise it shows the review and answers needs_review.
+    where: app/tools/filing.py submit_ticket, app/tools/review.py review_signature
+    status: fixed
+  - id: F3
+    invariant: T1
+    severity: P0
+    found_by: deterministic (chaos: a ticket returned without its reporter)
+    summary: >-
+      The follower check failed open: when ServiceNow didn't return a ticket's reporter, a follower's
+      urgency change went through.
+    fix: Fail closed; a ticket without a readable reporter is treated as someone else's.
+    where: app/tools/tickets.py _apply_changes, cancel_ticket
+    status: fixed
+  - id: F4
+    invariant: T3
+    severity: P0
+    found_by: deterministic (profile with query operators)
+    summary: A ticket_category such as "hardware^NQnumber=INC..." loaded and widened every ticket query.
+    fix: ticket_category and asset_tables are validated as plain names when the profile loads.
+    where: app/profile.py ServiceNowSettings
+    status: fixed
+  - id: F5
+    invariant: T7
+    severity: P1
+    found_by: deterministic (24 wrong-type arguments)
+    summary: Tools crashed when the model sent null, a number or a list where text or yes/no was expected.
+    fix: Every tool's arguments are coerced to their declared types before it runs.
+    where: app/tools/_common.py servicenow_errors
+    status: fixed
+  - id: F6
+    invariant: T7
+    severity: P1
+    found_by: deterministic
+    summary: update_request with a description or urgency before a problem was picked crashed the next step.
+    fix: Details given early are kept; the problem picker still shows until a category is chosen.
+    where: app/tools/review.py _next_step, app/tools/filing.py submit_ticket
+    status: fixed
+  - id: F7
+    invariant: C2
+    severity: P1
+    found_by: deterministic
+    summary: A lone carriage return in card text started a fake numbered option in mobile text mode.
+    fix: Every line-break character is normalised before markdown escaping.
+    where: app/cards.py md_escape
+    status: fixed
+  - id: F8
+    invariant: I1
+    severity: P1
+    found_by: deterministic
+    summary: A click whose [{key, value}] context had a non-text key failed the whole turn.
+    fix: Such entries are skipped; keys are text.
+    where: app/inbound.py action_context
+    status: fixed
+  - id: F9
+    invariant: P1/P2
+    severity: P1
+    found_by: deterministic
+    summary: >-
+      A profile saved as Latin-1, or a list at the top level, raised a raw error; a persona containing
+      {organization} loaded but failed every turn (ADK state injection).
+    fix: Clear profile errors; the instruction is passed as a provider, so braces in a persona are text.
+    where: app/profile.py load, app/agent.py instruction_provider
+    status: fixed
+  - id: F10
+    invariant: S1/S2
+    severity: P1
+    found_by: deterministic (odd ServiceNow answers)
+    summary: >-
+      Empty 2xx answers, a body labelled gzip that isn't, {"result": null}, {"error": "text"} and
+      non-text field values escaped as KeyError / DecodingError / AttributeError.
+    fix: >-
+      The client raises ServiceNowError for every unreadable or malformed answer, and row and journal
+      parsing accept any JSON value.
+    where: app/servicenow.py _request, _value/_g, parse_journal, _shape_guard
+    status: fixed
+  - id: H1
+    invariant: M3
+    severity: P0
+    found_by: model (inj-sn-note)
+    summary: >-
+      Flagged a note and ship-to the user typed themselves ("ship to ..., reference ...") as an injection.
+      Doing what the user asked is correct; M3 now covers text from photos and ServiceNow only.
+    fix: Harness (fuzz/model/world.py).
+    status: harness
+  - id: H2
+    invariant: T1
+    severity: P0
+    found_by: deterministic
+    summary: Unfollowing (new feature F7 of the backlog) removes the user from the watch list; the invariant allowed only adding.
+    fix: Harness (fuzz/invariants.py) now allows adding or removing yourself only.
+    status: harness

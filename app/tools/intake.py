@@ -243,7 +243,8 @@ async def analyze_photos(tool_context: ToolContext) -> dict:
                 "severity": f["damage_severity"], "category": f["issue_category"],
                 "supports_replacement": f["supports_replacement"], "photo_uri": photo["uri"],
             }
-        elif draft.get("issue") and PROFILE.photo_policy(draft["issue"]["category"])[0] == "required" \
+        elif (draft.get("issue") or {}).get("category") \
+                and PROFILE.photo_policy(draft["issue"]["category"])[0] == "required" \
                 and f["image_kind"] not in ("label",) \
                 and (draft.get("evidence") or {}).get("severity", "none") == "none":
             # Only when no photo so far showed damage: a wide shot after a close-up keeps the close-up.

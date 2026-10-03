@@ -537,6 +537,9 @@ _MD_LINE_START = re.compile(r"^(\s*)(\d+)([.)])|^(\s*)([#>+\-])", re.M)
 def md_escape(text: str) -> str:
     """Text from ServiceNow or the user, shown as markdown in the mobile app: shown literally, so a
     note can't add links, images, emphasis, or a fake numbered option ("1. Cancel request")."""
+    # Every kind of line break is a newline first: a lone \r (or \u2028) would otherwise start a line
+    # the escaping below doesn't see, e.g. a fake "6. Submit request" option.
+    text = re.sub(r"\r\n?|[\u2028\u2029\x0b\x0c\x1c\x1d\x1e\x85]", "\n", text)
     text = _MD_INLINE.sub(r"\\\1", text)
     return _MD_LINE_START.sub(lambda m: f"{m.group(1)}{m.group(2)}\\{m.group(3)}" if m.group(2)
                               else f"{m.group(4)}\\{m.group(5)}", text)

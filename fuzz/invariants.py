@@ -235,8 +235,9 @@ def check_writes(log: list[dict], start: int = 0, inv: str = "T1") -> None:
         old = _watchers(before.get("watch_list"))
         if "watch_list" in fields:
             new = _watchers(fields["watch_list"])
-            check(set(new) - set(old) <= {user} and set(old) <= set(new), inv,
-                  "watch list change does more than add the acting user", before=old, after=new, user=user,
+            # Following adds the user, unfollowing removes them; nobody else may change.
+            check((set(new) ^ set(old)) <= {user}, inv,
+                  "watch list change touches someone other than the acting user", before=old, after=new, user=user,
                   number=before.get("number"))
         if _caller(before) == user:
             extra = set(fields) - _OWN_FIELDS

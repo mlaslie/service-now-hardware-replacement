@@ -70,9 +70,9 @@ def action_context(action: dict) -> dict:
         return {k: (v.get("literalString") if isinstance(v, dict) else v) for k, v in ctx.items()}
     out = {}
     for kv in ctx if isinstance(ctx, list) else []:
-        if isinstance(kv, dict) and "key" in kv:
+        if isinstance(kv, dict) and isinstance(kv.get("key"), (str, int, float, bool)):
             v = kv.get("value")
-            out[kv["key"]] = v.get("literalString") if isinstance(v, dict) else v
+            out[str(kv["key"])] = v.get("literalString") if isinstance(v, dict) else v
     return out
 
 

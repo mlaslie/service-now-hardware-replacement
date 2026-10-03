@@ -31,7 +31,10 @@ async def instruction_check() -> None:
                                      "last_photo_ids": []}, app_name="hardware_replacement", user_id="u", id="s")
     ctx = SimpleNamespace(_invocation_context=SimpleNamespace(session=session, artifact_service=None),
                           agent_name=agent.root_agent.name)
-    await inject_session_state(agent.root_agent.instruction, ctx)
+    # As ADK does each turn: resolve the instruction, inject state unless it came from a provider.
+    instruction, bypass = await agent.root_agent.canonical_instruction(ctx)
+    if not bypass:
+        await inject_session_state(instruction, ctx)
 
 
 async def flow(steps: list) -> None:

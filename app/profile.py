@@ -20,7 +20,7 @@ import os
 import string
 import sys
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -143,8 +143,10 @@ def check_template(template: str, allowed: set[str], where: str) -> None:
 
 
 class ServiceNowSettings(_Strict):
-    ticket_category: str = Field("hardware", min_length=1, description="incident.category for every ticket")
-    asset_tables: list[str] = Field(["alm_hardware"], min_length=1, description="Tables searched for devices")
+    ticket_category: str = Field("hardware", min_length=1, pattern=r"^[A-Za-z0-9_][A-Za-z0-9_ .\-]*$",
+                                 description="incident.category for every ticket (a choice value: no query operators)")
+    asset_tables: list[Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$")]] = Field(
+        ["alm_hardware"], min_length=1, description="Tables searched for devices (table names)")
     ticket_fields: dict[str, str] = Field(
         default_factory=lambda: {"contact_type": "self-service"},
         description="Extra incident fields on every new ticket: fixed text or {placeholders}")
@@ -317,12 +319,18 @@ def load(path: str | Path | None = None) -> Profile:
     if not path.is_absolute():
         path = ROOT / path
     try:
-        data = yaml.safe_load(path.read_text())
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except UnicodeDecodeError as exc:
+        raise ProfileError(f"Organization profile {path} is not valid:\n  - (file): not UTF-8 text "
+                           f"({exc.reason} at byte {exc.start}). Save it as UTF-8.") from None
     except FileNotFoundError:
         raise ProfileError(f"Organization profile not found: {path}. Copy config/examples/office.yaml "
                            "to config/organization.yaml, or set ORGANIZATION_PROFILE.") from None
     except yaml.YAMLError as exc:
         raise ProfileError(f"Organization profile {path} is not valid YAML: {exc}") from None
+    if not isinstance(data, (dict, type(None))):
+        raise ProfileError(f"Organization profile {path} is not valid:\n  - (top level): expected 'key: value' "
+                           "settings, found a list or a single value")
     try:
         return Profile.model_validate(data or {})
     except ValidationError as exc:

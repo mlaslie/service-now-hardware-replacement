@@ -2,6 +2,9 @@
 and decides which step (and card) comes next.
 """
 
+import hashlib
+import json
+
 from google.adk.tools import ToolContext
 
 from app import cards, memory, servicenow
@@ -89,8 +92,19 @@ def _photo_mismatch(draft: dict) -> str:
     return ""
 
 
+def review_signature(draft: dict) -> str:
+    """What the user approves on the review card. If any of it changes, they must see the card again."""
+    device, issue = draft.get("device") or {}, draft.get("issue") or {}
+    parts = [device.get("asset_tag"), device.get("serial_number"), issue.get("category"), issue.get("description"),
+             issue.get("urgency"), (draft.get("delivery") or {}).get("address"), draft.get("priority"),
+             draft.get("recommendation"), (draft.get("evidence") or {}).get("summary")]
+    return hashlib.sha256(json.dumps(parts, default=str).encode()).hexdigest()[:16]
+
+
 async def _review(ctx: ToolContext, draft: dict, employee: dict) -> dict:
     draft = _refresh(draft, employee)
+    # Remember what was shown, and in which turn: submit_ticket files only what the user has seen.
+    draft["reviewed"] = {"sig": review_signature(draft), "turn": getattr(ctx, "invocation_id", "") or ""}
     if "saved_addresses" not in draft and not cards.is_equipment(draft.get("device") or {}):
         on_file = memory.normalize_address(employee.get("location_address", ""))
         draft["saved_addresses"] = [a for a in await saved_addresses(employee.get("email", ""))
@@ -107,6 +121,8 @@ async def _review(ctx: ToolContext, draft: dict, employee: dict) -> dict:
 async def _next_step(ctx: ToolContext, draft: dict, employee: dict) -> dict:
     """Shows whichever step is still missing, so the wizard skips what is known."""
     device, issue = draft.get("device"), draft.get("issue")
+    if issue and not issue.get("category"):
+        issue = None  # details given before the problem was picked (kept on the draft for set_issue)
     if device and cards.is_equipment(device) and not PROFILE.features.equipment_reporting:
         draft.pop("device", None)
         _save(ctx, draft)

@@ -21,6 +21,8 @@ Engineering, the IT Service Desk).
 import contextvars
 import datetime
 import hashlib
+import functools
+import inspect
 import logging
 import re
 import time
@@ -109,6 +111,8 @@ async def _request(method: str, path: str, *, token: str | None = None, params: 
         raise Unavailable(f"{where}: ServiceNow did not answer in time") from exc
     except httpx.TransportError as exc:
         raise Unavailable(f"{where}: ServiceNow could not be reached ({type(exc).__name__})") from exc
+    except httpx.HTTPError as exc:  # e.g. a body labelled gzip that isn't (a proxy's error page)
+        raise ServiceNowError(f"{where}: unreadable answer ({type(exc).__name__})") from exc
     if r.status_code == 401:
         raise NotSignedIn()
     is_json = "json" in r.headers.get("content-type", "")
@@ -117,7 +121,8 @@ async def _request(method: str, path: str, *, token: str | None = None, params: 
     except ValueError:
         body, is_json = {}, False
     if r.status_code >= 400:
-        detail = ((body.get("error") or {}).get("message") if isinstance(body, dict) else "") or \
+        error = body.get("error") if isinstance(body, dict) else None
+        detail = (error.get("message") if isinstance(error, dict) else error if isinstance(error, str) else "") or \
             f"HTTP {r.status_code}" + ("" if is_json else " (non-JSON page)")
         if not is_json and "hibernat" in r.text[:2000].lower():
             raise Hibernating("ServiceNow returned a hibernation page; the instance is waking up.")
@@ -125,14 +130,24 @@ async def _request(method: str, path: str, *, token: str | None = None, params: 
     if not is_json:
         # A 200 HTML page: developer instances answer like this while hibernating or waking up.
         raise Hibernating("ServiceNow returned a non-JSON page; the instance may be hibernating.")
+    if not r.content and method != "DELETE" and r.status_code != 204:
+        raise ServiceNowError(f"{where} -> {r.status_code}: empty answer")
     return body if isinstance(body, dict) else {"result": body}
 
 
 def _value(field) -> str:
-    """Reference fields come back as {"link": ..., "value": ...} unless displayed."""
+    """Reference fields come back as {"link": ..., "value": ...} unless displayed. Always text: any
+    other JSON value (a number, a list, null) from an unusual instance or proxy becomes text or ""."""
     if isinstance(field, dict):
-        return field.get("value", "")
-    return field or ""
+        field = field.get("value", "")
+    if field is None or isinstance(field, (list, dict)):
+        return ""
+    return field if isinstance(field, str) else str(field)
+
+
+def _g(rec, key: str, default: str = "") -> str:
+    """A row's field as text, whatever JSON ServiceNow (or a proxy) sent."""
+    return (_value(rec.get(key)) if isinstance(rec, dict) else "") or default
 
 
 # --- The signed-in user --------------------------------------------------------
@@ -244,32 +259,32 @@ def _kind(category: str, assigned_to: str) -> str:
 
 
 def _asset(rec: dict) -> dict:
-    name = rec.get("model.display_name") or rec.get("display_name", "")
-    category = rec.get("model_category.name") or ""
-    device_kind = _kind(category, _value(rec.get("assigned_to")))
+    name = _g(rec, "model.display_name") or _g(rec, "display_name")
+    category = _g(rec, "model_category.name") or ""
+    device_kind = _kind(category, _g(rec, "assigned_to"))
     kind = "medical equipment" if device_kind == CLINICAL else _device_type(category, name)
     return {
-        "sys_id": rec.get("sys_id", ""),
-        "asset_tag": rec.get("asset_tag", ""),
-        "serial_number": rec.get("serial_number", ""),
-        "manufacturer": rec.get("model.manufacturer.name", ""),
-        "model": rec.get("model.display_name") or rec.get("display_name", ""),
+        "sys_id": _g(rec, "sys_id"),
+        "asset_tag": _g(rec, "asset_tag"),
+        "serial_number": _g(rec, "serial_number"),
+        "manufacturer": _g(rec, "model.manufacturer.name"),
+        "model": _g(rec, "model.display_name") or _g(rec, "display_name"),
         "device_type": kind,
-        "purchase_date": rec.get("purchase_date", ""),
-        "warranty_end": rec.get("warranty_expiration", ""),
-        "assigned_to": _value(rec.get("assigned_to")),
-        "assigned_to_name": rec.get("assigned_to.name", ""),
-        "ci": _value(rec.get("ci")),
+        "purchase_date": _g(rec, "purchase_date"),
+        "warranty_end": _g(rec, "warranty_expiration"),
+        "assigned_to": _g(rec, "assigned_to"),
+        "assigned_to_name": _g(rec, "assigned_to.name"),
+        "ci": _g(rec, "ci"),
         "kind": device_kind,
         "category": category,
-        "department_id": _value(rec.get("department")),
-        "department": rec.get("department.name", ""),
-        "location_id": _value(rec.get("location")),
-        "location": rec.get("location.name", ""),
-        "support_group_id": _value(rec.get("support_group")),
-        "support_group": rec.get("support_group.name", ""),
-        "cost_center": rec.get("cost_center.name", ""),
-        "managed_by": _value(rec.get("managed_by")),
+        "department_id": _g(rec, "department"),
+        "department": _g(rec, "department.name"),
+        "location_id": _g(rec, "location"),
+        "location": _g(rec, "location.name"),
+        "support_group_id": _g(rec, "support_group"),
+        "support_group": _g(rec, "support_group.name"),
+        "cost_center": _g(rec, "cost_center.name"),
+        "managed_by": _g(rec, "managed_by"),
     }
 
 
@@ -357,25 +372,25 @@ async def find_asset(asset_tag: str = "", serial_number: str = "") -> dict | Non
 
 def _incident(rec: dict) -> dict:
     return {
-        "sys_id": rec.get("sys_id", ""),
-        "number": rec.get("number", ""),
-        "short_description": rec.get("short_description", ""),
-        "description": rec.get("description", ""),
-        "state": STATE_LABELS.get(str(rec.get("state")), str(rec.get("state"))),
-        "state_code": str(rec.get("state", "")),
-        "priority": str(rec.get("priority", "")),
-        "urgency": str(rec.get("urgency", "")),
-        "impact": str(rec.get("impact", "")),
-        "opened": rec.get("sys_created_on", ""),
-        "updated": rec.get("sys_updated_on", ""),
-        "assignment_group": rec.get("assignment_group.name", ""),
-        "assigned_to": rec.get("assigned_to.name", ""),
-        "device": rec.get("cmdb_ci.name", ""),
-        "assignment_group_id": _value(rec.get("assignment_group")),
-        "caller_id": _value(rec.get("caller_id")),
-        "caller": rec.get("caller_id.name", ""),
-        "watch_list": [w for w in str(rec.get("watch_list") or "").split(",") if w],
-        "url": f"{_base()}/nav_to.do?uri=incident.do?sys_id={rec.get('sys_id', '')}",
+        "sys_id": _g(rec, "sys_id"),
+        "number": _g(rec, "number"),
+        "short_description": _g(rec, "short_description"),
+        "description": _g(rec, "description"),
+        "state": STATE_LABELS.get(_g(rec, "state"), _g(rec, "state")),
+        "state_code": str(_g(rec, "state")),
+        "priority": str(_g(rec, "priority")),
+        "urgency": str(_g(rec, "urgency")),
+        "impact": str(_g(rec, "impact")),
+        "opened": _g(rec, "sys_created_on"),
+        "updated": _g(rec, "sys_updated_on"),
+        "assignment_group": _g(rec, "assignment_group.name"),
+        "assigned_to": _g(rec, "assigned_to.name"),
+        "device": _g(rec, "cmdb_ci.name"),
+        "assignment_group_id": _g(rec, "assignment_group"),
+        "caller_id": _g(rec, "caller_id"),
+        "caller": _g(rec, "caller_id.name"),
+        "watch_list": [w for w in str(_g(rec, "watch_list") or "").split(",") if w],
+        "url": f"{_base()}/nav_to.do?uri=incident.do?sys_id={_g(rec, "sys_id")}",
     }
 
 
@@ -500,7 +515,7 @@ def parse_journal(text: str) -> list[dict]:
     Falls back to one entry with the raw text rather than reporting "no notes"
     when ServiceNow's format isn't recognized.
     """
-    text = (text or "").replace("\r\n", "\n").strip()
+    text = (text if isinstance(text, str) else _value(text)).replace("\r\n", "\n").strip()
     if not text:
         return []
     matches = list(_JOURNAL_HEADER.finditer(text))
@@ -570,3 +585,23 @@ def newest_first(entries: list[dict]) -> list[dict]:
 async def attach(table_sys_id: str, filename: str, data: bytes, mime_type: str) -> None:
     await _request("POST", "/api/now/attachment/file", content=data, headers={"Content-Type": mime_type},
                    params={"table_name": "incident", "table_sys_id": table_sys_id, "file_name": filename})
+
+
+# --- Answers in an unexpected shape -------------------------------------------------------------
+# Every public call turns a malformed answer ({"result": "x"}, {"result": null}, a missing field)
+# into a ServiceNowError, which the tools explain, instead of a crash in the middle of a turn.
+
+def _shape_guard(fn):
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await fn(*args, **kwargs)
+        except (AttributeError, KeyError, TypeError, IndexError, ValueError) as exc:
+            logger.warning("unexpected ServiceNow answer in %s: %s", fn.__name__, type(exc).__name__)
+            raise ServiceNowError(f"{fn.__name__}: unexpected answer from ServiceNow ({type(exc).__name__})") from exc
+    return wrapper
+
+
+for _name, _fn in list(globals().items()):
+    if not _name.startswith("_") and inspect.iscoroutinefunction(_fn) and _fn.__module__ == __name__:
+        globals()[_name] = _shape_guard(_fn)

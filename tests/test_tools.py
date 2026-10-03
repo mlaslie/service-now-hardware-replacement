@@ -33,7 +33,7 @@ async def test_change_not_applied_is_noted_and_reported(monkeypatch):
 
     ticket = {"sys_id": "s1", "number": "INC1", "state": "Resolved", "state_code": "6", "priority": "3",
               "urgency": "3", "impact": "2", "description": "Ship to: 1 Old St", "short_description": "x",
-              "opened": "", "updated": "", "assignment_group": "", "assigned_to": ""}
+              "opened": "", "updated": "", "assignment_group": "", "assigned_to": "", "caller_id": "me"}
     patches = []
 
     async def own(ctx, number):

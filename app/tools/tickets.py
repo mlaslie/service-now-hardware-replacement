@@ -156,7 +156,9 @@ async def _apply_changes(ctx: ToolContext, number: str, changes: list[dict], not
     employee, ticket = await _own_ticket(ctx, number)
     if not employee:
         return ticket
-    if changes and ticket.get("caller_id") and ticket["caller_id"] != employee["sys_id"]:
+    # Only the reporter changes a ticket. Fail closed: a ticket whose reporter ServiceNow didn't
+    # return (a field the account can't read) is treated as someone else's.
+    if changes and ticket.get("caller_id") != employee["sys_id"]:
         return await _follower_request(ctx, employee, ticket, changes, note)
     # Changes the organization leaves to the service desk (profile requester_changes) become a request note.
     by_desk = [ch for ch in changes if not getattr(PROFILE.requester_changes, ch.get("policy", ""), True)]
@@ -323,7 +325,7 @@ async def cancel_ticket(number: str, reason: str, tool_context: ToolContext) -> 
         return ticket
     if ticket["state_code"] not in servicenow.ACTIVE_STATES:
         return {"status": "error", "message": f"{number} is already {ticket['state'].lower()}."}
-    if ticket.get("caller_id") and ticket["caller_id"] != employee["sys_id"]:
+    if ticket.get("caller_id") != employee["sys_id"]:  # fail closed, as in _apply_changes
         return {"status": "not_permitted", "message": (
             f"Only the person who reported {number} ({ticket.get('caller') or 'someone else'}) can cancel it. "
             "The user follows it. Offer to add a note instead, e.g. that it is working again.")}

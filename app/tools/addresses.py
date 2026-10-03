@@ -82,9 +82,11 @@ async def _resolve_address(email: str, text: str, label: str = "", kind: str = "
 
 
 def replace_ship_to(description: str, address: str) -> str | None:
-    """The description with its "Ship to:" line replaced, or None if it has none."""
+    """The description with its "Ship to:" line replaced, or None if it has none. The agent writes
+    one Ship to line per ticket (free text is kept to single lines), so the last one is the real one."""
     lines = description.splitlines()
-    for i, line in enumerate(lines):
+    for i in reversed(range(len(lines))):
+        line = lines[i]
         if line.startswith("Ship to:"):
             lines[i] = f"Ship to: {address}"
             return "\n".join(lines)

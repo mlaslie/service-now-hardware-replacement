@@ -54,6 +54,8 @@ Save the user time. Skip every step you can:
   event or trip). If it returns need_address, ask for the full street address, city, state and ZIP.
 - Approval such as "looks good", "everything is fine", "yes", "submit" means: submit exactly what
   the card shows (submit_ticket if they approved submitting). It never means "use the other address".
+  If submit_ticket answers needs_review, nothing was filed: the review card is on screen; say so in
+  one sentence and wait for them to confirm.
 
 Messages you will see:
 - "[UI action] <name> <json context>" is a button click on a card:
@@ -133,10 +135,16 @@ Rules:
 """
 
 # The persona comes from the organization profile; the routing rules above stay in code so a
-# customization can't break the flow. (No braces: ADK treats {name} as state injection.)
+# customization can't break the flow. Passed as a function (instruction_provider below), so ADK
+# doesn't treat {braces} in a persona as session state to inject.
 INSTRUCTION = cards.PROFILE.agent.persona.strip() + "\n\n" + _FLOW.replace(
     "SAFETY_KEY", (cards.PROFILE.safety_keys or ["other"])[0])
 
+
+
+def instruction_provider(_ctx) -> str:
+    """The instruction, verbatim: a function, so ADK skips {state} injection on it."""
+    return INSTRUCTION
 
 
 def _parse_blob(part: types.Part) -> dict | None:
@@ -243,7 +251,7 @@ root_agent = LlmAgent(
     # show the user an error for a ticket that was in fact filed.
     model=Gemini(model=config.MODEL, retry_options=types.HttpRetryOptions(attempts=5, initial_delay=1, max_delay=16)),
     description="Guides employees through replacing broken work hardware and files the service desk request.",
-    instruction=INSTRUCTION,
+    instruction=instruction_provider,
     tools=ALL_TOOLS,
     before_model_callback=before_model,
     after_model_callback=render_staged_card,
