@@ -37,6 +37,28 @@ async def test_someone_elses_ticket_is_not_found_and_not_updated(calls):
     assert not [c for c in calls if c[0] == "PATCH"]
 
 
+@pytest.mark.parametrize("number", ["INC0000001^NQnumber=INC0000999", "INC0000001^ORnumber=INC0000999",
+                                    "INC0000001,INC0000999", "number=INC0000999", "^NQ"])
+async def test_a_ticket_number_cannot_add_query_operators(calls, number):
+    assert await servicenow.my_incident("me", number) is None
+    assert await servicenow.update_incident("me", number, {"state": "8"}) is None
+    assert not calls  # rejected before anything is sent
+
+
+@pytest.mark.parametrize("tag, serial", [("P1000^NQinstall_status!=7", ""), ("", "X^NQinstall_status!=7"),
+                                         ("", "C02 XL0^ORserial_numberISNOTEMPTY")])
+async def test_tags_and_serials_cannot_add_query_operators(monkeypatch, tag, serial):
+    queries = []
+
+    async def fake_assets(query, limit):
+        queries.append(query)
+        return []
+
+    monkeypatch.setattr(servicenow, "_assets", fake_assets)
+    await servicenow.find_asset(tag, serial)
+    assert queries and all("^" not in q and q.count("=") == 1 for q in queries), queries
+
+
 async def test_own_ticket_is_updated_by_sys_id(calls):
     ticket = await servicenow.update_incident("me", "inc0000001", {"comments": "new address"})
     assert ticket["number"] == "INC0000001"

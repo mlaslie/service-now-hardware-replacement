@@ -185,14 +185,15 @@ def render_staged_card(callback_context: CallbackContext, llm_response: LlmRespo
     callback_context.state[CARD_KEY] = None
     intro = " ".join(p.text for p in content.parts if p.text and not p.thought).strip()
     messages = cards.prepend_text(card, intro[:300])
-    if callback_context.state.get(inbound.A2UI_VERSION_KEY) == "0.8":
-        messages = cards.to_v08(messages)  # a client (registration) that negotiated v0.8
     if callback_context.state.get(inbound.UI_MODE_KEY) == "text":
-        # Mobile app: no A2UI. Same card as text; a numbered reply acts as a click.
+        # Mobile app: no A2UI. Same card as text (read from the v0.9 card, whatever version the
+        # registration negotiated); a numbered reply acts as a click.
         text, options = cards.to_text(messages)
         callback_context.state[inbound.UI_OPTIONS_KEY] = options
         return LlmResponse(content=types.Content(role="model", parts=[types.Part(text=text)]),
                            custom_metadata={"a2a:response": "true"})
+    if callback_context.state.get(inbound.A2UI_VERSION_KEY) == "0.8":
+        messages = cards.to_v08(messages)  # a client (registration) that negotiated v0.8
     return LlmResponse(
         content=types.Content(role="model", parts=[_wrap(m) for m in messages]),
         custom_metadata={"a2a:response": "true"},

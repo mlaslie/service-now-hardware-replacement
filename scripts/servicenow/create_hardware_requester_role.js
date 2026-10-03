@@ -20,11 +20,13 @@
   var MINE = "current.caller_id == gs.getUserID()";
   var FOLLOWING = "String(current.watch_list).indexOf(gs.getUserID()) > -1";
   var OPEN = "current.active == true";
+  // Open tickets on a device record: equipment others may have reported ("already reported").
+  var EQUIPMENT = "(" + OPEN + " && !current.cmdb_ci.nil())";
 
   var RULES = [
     // [table or table.field, operation, script (empty = role only), what it allows]
-    ['incident', 'write', HW + ' && (' + MINE + ' || ' + FOLLOWING + ' || ' + OPEN + ')',
-     'update own or followed hardware tickets, and follow open ones'],
+    ['incident', 'write', HW + ' && (' + MINE + ' || ' + FOLLOWING + ' || ' + EQUIPMENT + ')',
+     'update own or followed hardware tickets, and follow open equipment tickets'],
     ['incident.description', 'write', HW + ' && ' + MINE, 'ticket details and ship-to on own tickets'],
     ['incident.urgency', 'write', HW + ' && ' + MINE, 'urgency on own tickets'],
     ['incident.impact', 'write', HW + ' && ' + MINE, 'impact on own tickets'],
@@ -32,9 +34,11 @@
     ['incident.close_code', 'write', HW + ' && ' + MINE, 'cancel own tickets'],
     ['incident.close_notes', 'write', HW + ' && ' + MINE, 'cancel own tickets'],
     ['incident.hold_reason', 'write', HW + ' && ' + MINE, 'put own tickets on hold'],
-    ['incident.watch_list', 'write', HW + ' && (' + MINE + ' || ' + OPEN + ')', 'follow open hardware tickets'],
-    ['incident.comments', 'write', HW + ' && (' + MINE + ' || ' + FOLLOWING + ' || ' + OPEN + ')',
-     'notes on own, followed or open hardware tickets'],
+    // Others' tickets: only open equipment tickets, and the business rule below only lets a
+    // requester add or remove themselves (never anyone else).
+    ['incident.watch_list', 'write', HW + ' && (' + MINE + ' || ' + EQUIPMENT + ')', 'follow open equipment tickets'],
+    ['incident.comments', 'write', HW + ' && (' + MINE + ' || ' + FOLLOWING + ' || ' + EQUIPMENT + ')',
+     'notes on own, followed or open equipment tickets'],
     ['incident', 'read', HW + ' && (' + MINE + ' || ' + FOLLOWING + ' || (' + OPEN + ' && !current.cmdb_ci.nil()))',
      'see own and followed tickets, and open tickets on equipment ("already reported")'],
     ['cmdb_ci', 'read', '', 'device records, to link tickets to equipment'],
@@ -90,5 +94,40 @@
     }
     gs.print((isNew ? 'created ' : 'updated ') + name + ' ' + op);
   }
-  gs.print('Done: role ' + ROLE + ' with ' + RULES.length + ' access rules.');
+
+  // An access rule can't see the new value, so a business rule checks watch list changes on
+  // others' tickets: a requester (without itil) may only add or remove themselves.
+  var BR = 'u_hardware_requester: follow only';
+  var guard = [
+    '(function executeRule(current, previous) {',
+    "  if (gs.hasRole('itil') || !gs.hasRole('" + ROLE + "')) return;",
+    '  var me = gs.getUserID();',
+    '  if (current.getValue("caller_id") == me) return;',
+    '  var split = function (v) { return String(v || "").split(",").filter(function (x) { return x; }); };',
+    '  var before = split(previous.getValue("watch_list")), after = split(current.getValue("watch_list"));',
+    '  var changed = after.filter(function (x) { return before.indexOf(x) < 0; })',
+    '    .concat(before.filter(function (x) { return after.indexOf(x) < 0; }));',
+    '  if (changed.some(function (x) { return x != me; })) {',
+    "    gs.addErrorMessage('You can follow or stop following this ticket, but not change who else follows it.');",
+    '    current.setAbortAction(true);',
+    '  }',
+    '})(current, previous);'
+  ].join('\n');
+  var br = new GlideRecord('sys_script');
+  var brNew = !br.get('name', BR);
+  if (brNew) br.initialize();
+  br.name = BR;
+  br.collection = 'incident';
+  br.when = 'before';
+  br.action_update = true;
+  br.action_insert = false;
+  br.advanced = true;
+  br.active = true;
+  br.order = 100;
+  br.condition = "current.watch_list.changes() && current.category == '" + CATEGORY + "'";
+  br.script = guard;
+  br.description = MARK + ' ' + ROLE + ': requesters may only add or remove themselves on others\' tickets';
+  gs.print((brNew ? (br.insert() ? 'created ' : 'FAILED ') : (br.update() ? 'updated ' : 'FAILED ')) +
+           'business rule "' + BR + '"');
+  gs.print('Done: role ' + ROLE + ' with ' + RULES.length + ' access rules and 1 business rule.');
 })();

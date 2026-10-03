@@ -67,15 +67,20 @@ A role that allows exactly what the agent does for a requester, on hardware tick
 
 | Access rule | Condition | Allows |
 |---|---|---|
-| `incident` write | hardware, and mine, followed, or open | updating own/followed tickets; following open ones |
+| `incident` write | hardware, and mine, followed, or open on a device record | updating own/followed tickets; following open equipment tickets |
 | `incident.description`, `.urgency`, `.impact`, `.state`, `.close_code`, `.close_notes`, `.hold_reason` write | hardware and mine | details, ship-to, urgency, reopen, hold, cancel: own tickets only |
-| `incident.watch_list` write | hardware, and mine or open | following open hardware tickets |
-| `incident.comments` write | hardware, and mine, followed or open | notes |
+| `incident.watch_list` write | hardware, and mine or open on a device record | following open equipment tickets |
+| `incident.comments` write | hardware, and mine, followed or open on a device record | notes |
 | `incident` read | hardware, and mine, followed, or open on a device record | own tickets; "already reported" on equipment |
 | `cmdb_ci` read | (role only) | linking tickets to equipment |
 | `sys_user_grmember` read | the row is mine | "supported by your group" |
 
 Followers can add notes and follow, but only the reporter can change details or status.
+
+An access rule can't see the value being written, so a **business rule** (`u_hardware_requester: follow
+only`, before update on `incident`) checks watch list changes on other people's tickets: a requester
+without `itil` may add or remove only themselves, never anyone else. The create script installs it and
+`sn_custom_role.py status` checks it.
 
 **Measured** (2026-10-01, `sn_doctor.py --matrix --persona none --persona u_hardware_requester --persona itil`,
 temporary users, everything deleted afterwards): **`u_hardware_requester` passes all 16 checks, the same as
@@ -98,7 +103,8 @@ so this is a background script rather than an API call):
 
 1. In ServiceNow as an admin: user menu > **Elevate role** > `security_admin`.
 2. **System Definition > Scripts - Background**: paste `scripts/servicenow/create_hardware_requester_role.js`, **Run script**.
-   It prints one line per rule. Safe to run again. `remove_hardware_requester_role.js` undoes everything.
+   It prints one line per rule. Safe to run again (run it again after updating this repo to apply rule changes).
+   `remove_hardware_requester_role.js` undoes everything, and keeps the role if any rule could not be deleted.
 3. Check, grant, and measure:
    ```bash
    uv run python scripts/sn_custom_role.py status

@@ -20,6 +20,7 @@ import sn_seed  # noqa: E402
 
 ROLE = "u_hardware_requester"
 EXPECTED_RULES = 13
+GUARD_RULE = "u_hardware_requester: follow only"  # business rule: requesters only add/remove themselves as followers
 
 
 def main() -> None:
@@ -43,7 +44,10 @@ def main() -> None:
         holders = sn.query("sys_user_has_role", f"role={role['sys_id']}^inherited=false", "user.user_name", 500)
         print(f"{len(rules)} of {EXPECTED_RULES} rules  |  granted to: "
               + (", ".join(sorted(h.get("user.user_name", "?") for h in holders)) or "nobody"))
-        if len(rules) != EXPECTED_RULES:
+        guard = sn.one("sys_script", f"name={GUARD_RULE}", "active")
+        print(f"business rule '{GUARD_RULE}': " + ("active" if guard and guard["active"] == "true"
+                                                    else "INACTIVE" if guard else "missing"))
+        if len(rules) != EXPECTED_RULES or not guard or guard["active"] != "true":
             sys.exit("Rules missing: run the create script again (elevated).")
         return
     for name in args.users:

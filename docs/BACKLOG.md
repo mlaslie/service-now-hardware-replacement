@@ -8,8 +8,76 @@ Status 2026-10-01. **Done:** A0, A1, A2 (evals), A3, B, E (mobile text mode), F 
 G1.3, G2.1-G2.3, G2.6-G2.8, G3.1, G3.5, most of G3.7, A2UI v0.9 + green buttons, verbatim saved addresses,
 custom role `u_hardware_requester` (created and measured: passes everything `itil` does), README/HTML overview,
 generic configurable demo users.
-**Next:** G3.3 (wording in `messages.yaml`), G1.2 (split `tools.py`), G3.12 (customization recipes), F1 (live
+**Next:** H0 (review fixes, below), then G3.3 (wording in `messages.yaml`), G1.2 (split `tools.py`), G3.12 (customization recipes), F1 (live
 pass), rest of G3.7 (ticket table / catalog item), then D ideas. Section C is folded into G2.
+---
+
+## H. Code review findings (2026-10-02)
+
+A read-only review of the whole codebase (four parallel reviewers, the top findings re-checked by hand).
+Live revision `00030` at review time. Numbers match the review.
+
+### H0. Correctness and security (P0): **fixed 2026-10-02, tests added; deployed (revision 00031), not yet committed.
+H0.6 also needs the create script re-run in ServiceNow (elevated).**
+- [x] **H0.1 Typed address swapped for a saved one** (`app/tools.py` `_canonical_place`/`_match_saved`): labels and
+  aliases match as substrings, so "500 Warehouse Ave" -> Home ("house"), "1 Network Way" -> office ("work").
+  Match whole words, and never let a label match override text that is already a street address.
+- [x] **H0.2 Encoded-query injection** (`app/servicenow.py` `my_incident`, `find_asset` serial): ticket numbers and
+  serials go into `sysparm_query` unescaped; `INC1^NQnumber=INC2` escapes the "mine" filter. Validate numbers,
+  filter serials like asset tags.
+- [x] **H0.3 Followers can change status of others' tickets** (`update_ticket` -> `_state_change`): any of the six
+  states is accepted; only `cancel_ticket` checks the reporter. Allow status/urgency/ship-to changes on own
+  tickets only, and only the four documented statuses.
+- [x] **H0.4 Mobile text empty on a v0.8 registration** (`app/agent.py` `render_staged_card`): `to_text` runs on
+  the v0.8 messages, which it can't read. Render text from the v0.9 messages.
+- [x] **H0.5 Error reported after the ticket was filed** (`submit_ticket`): follow-up notes run before
+  `submitted_number` is saved. Save the number right after create; make follow-up notes best-effort.
+- [x] **H0.6 Custom role: watch list rule too broad** (`scripts/servicenow/create_hardware_requester_role.js`):
+  anyone with the role can replace the whole watch list of any open hardware ticket, and being on it grants read.
+  Limit to: own tickets, or open tickets on equipment (`cmdb_ci` set), and require the change to keep existing
+  entries. Needs a re-run of the background script by an admin.
+
+### H1. Robustness (P1)
+- [ ] H1.1 ServiceNow timeouts/connection errors escape every soft-fail handler; HTML error pages read as
+  "Hibernating" before the status is checked (`servicenow._request`).
+- [ ] H1.2 A transient session-read failure re-asks the desktop/mobile question mid-conversation (`server.py`).
+- [ ] H1.3 Answers like "I'm on desktop", "1 - mobile", "1)" loop the display question (`inbound.py`).
+- [ ] H1.4 Stale numbered options: a later bare "1" can trigger an old button (clear options on turns without a card).
+- [ ] H1.5 Photo decode/upload failure fails the whole turn and loses the text (`inbound.py`, `server.py`).
+- [ ] H1.6 Editing after submit edits only the local draft (`update_request`, `choose_ship_to`, ...): point to `update_ticket`.
+- [ ] H1.7 A later photo without visible damage overwrites earlier damage evidence (`analyze_photos`).
+- [ ] H1.8 Profile values that validate but crash at submit: positional `{}` in `ticket_fields`, unknown
+  placeholders in `recommendations`.
+- [ ] H1.9 `seed reset` deletes all tickets of pre-existing users the seed only updated; filter by the seed's tickets.
+- [x] H1.10 `remove_hardware_requester_role.js` ignores delete results and doesn't check elevation (done with H0.6: verifies each delete, keeps the role if a rule remains, removes group grants).
+- [ ] H1.11 Concurrent submits can file two tickets (no lock between the "already submitted" check and create).
+- [ ] H1.12 Old device's photo warnings/evidence carry over after the device changes (`_set_device`).
+- [ ] H1.13 Ship-to change on a ticket without a Ship-to line (equipment, or description dropped) is reported as
+  "ServiceNow policy", and the note says "changed" even when it wasn't.
+
+### H2. Lower priority (P2)
+- [ ] "Suite 200" treated as a temporary address (office addresses never saved).
+- [ ] `normalize_address` drops non-ASCII letters (non-Latin addresses collide).
+- [ ] Memory recall slices before filtering out delivery memories.
+- [ ] Device/group/ticket lists truncate silently (20/50/10).
+- [ ] Notes fallback sorted on display strings.
+- [ ] ServiceNow text not markdown-escaped in mobile text mode (links/images in notes render).
+- [ ] JWT-shaped ServiceNow access tokens rejected by `identity.bearer()` (check `iss`, not dots).
+- [ ] Photo-label device match skips the "is this the right device?" confirmation.
+- [ ] Same issue key in both groups: equipment settings ignored.
+- [ ] Logs: user email and full request metadata at INFO.
+- [ ] One shared `httpx.AsyncClient`; evict `_user_cache`.
+- [ ] Container runs as root (add `USER`).
+- [ ] `sn_doctor`: temp user created outside `try`; cleanup deletes unchecked; end impersonation explicitly.
+- [ ] `sn_seed` token cache briefly world-readable; `chat.py` takes tokens as CLI args.
+- [ ] Personal identifiers in tracked docs (`HANDOFF.md`, `BACKLOG.md`, `CLAUDE.md`, one screenshot) and in
+  git history of `demo/DEMO.html` (needs a history rewrite to remove; repo is private).
+
+### H3. Test gaps (P1)
+- [ ] `server.preprocess`/`to_run_request`: token never in state, identity refreshed per turn, display-mode handling.
+- [ ] `sn_doctor` negative checks: writes to other fields on others' tickets; reading non-hardware incidents.
+- [ ] `memory` save/delete of addresses; `seed reset` with pre-existing users.
+
 ---
 
 ## G. Adoption kit: easy to understand, install and customize

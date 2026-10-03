@@ -89,3 +89,24 @@ def test_text_has_real_paragraph_breaks():
     for chunk in text.split("\n\n"):
         lines = chunk.split("\n")
         assert len(lines) == 1 or all(ln.startswith("- ") for ln in lines) or all(ln[0].isdigit() for ln in lines)
+
+
+def test_mobile_text_is_the_same_whatever_a2ui_version_was_negotiated():
+    """Text mode reads the v0.9 card; a v0.8 registration used to get an empty message."""
+    from types import SimpleNamespace
+
+    from google.adk.models import LlmResponse
+    from google.genai import types
+
+    from app import agent
+
+    def render(version):
+        card = cards.confirm_device({"display_name": "MacBook Air 13", "asset_tag": "P1000", "serial_number": "C02X"})
+        ctx = SimpleNamespace(state={agent.CARD_KEY: card, UI_MODE_KEY: "text", inbound.A2UI_VERSION_KEY: version})
+        reply = agent.render_staged_card(ctx, LlmResponse(content=types.Content(
+            role="model", parts=[types.Part(text="Is this the right device?")])))
+        return reply.content.parts[0].text, ctx.state[UI_OPTIONS_KEY]
+
+    text, options = render("0.8")
+    assert (text, options) == render("0.9")
+    assert "P1000" in text and "1." in text and len(options) >= 2

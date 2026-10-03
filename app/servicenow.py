@@ -275,13 +275,22 @@ async def search_assets(term: str, limit: int = 20) -> list[dict]:
     return await _assets(q, limit)
 
 
+_TICKET_NUMBER = re.compile(r"[A-Z]{2,8}\d{4,12}")
+
+
+def _identifier(value: str | None) -> str:
+    """An asset tag or serial as it may appear in a query: letters, digits and dashes only, so
+    user or photo text can never add query operators (^, ^OR, ^NQ...)."""
+    return "".join(ch for ch in (value or "").upper() if ch.isalnum() or ch == "-")
+
+
 async def find_asset(asset_tag: str = "", serial_number: str = "") -> dict | None:
     """By asset tag, then serial number. Returns None if the user can't see it."""
     clauses = []
-    tag = "".join(ch for ch in (asset_tag or "").upper() if ch.isalnum() or ch == "-")
+    tag = _identifier(asset_tag)
     if tag:
         clauses.append(f"asset_tag={tag}")
-    serial = (serial_number or "").strip().upper().replace(" ", "")
+    serial = _identifier(serial_number)
     if serial:
         clauses.append(f"serial_number={serial}")
     for clause in clauses:
@@ -395,8 +404,8 @@ async def my_incidents(user_sys_id: str, active_only: bool = True, limit: int = 
 
 async def my_incident(user_sys_id: str, number: str) -> dict | None:
     number = (number or "").strip().upper()
-    if not number:
-        return None
+    if not _TICKET_NUMBER.fullmatch(number):
+        return None  # also keeps query operators (^, ^NQ...) out of the "mine" filter
     q = f"{_mine(user_sys_id)}^number={number}"
     result = await _request("GET", "/api/now/table/incident",
                             params={"sysparm_query": q, "sysparm_fields": _INCIDENT_FIELDS, "sysparm_limit": 1,

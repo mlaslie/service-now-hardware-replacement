@@ -410,6 +410,23 @@ async def _file(ctx, tag="123456"):
     return await tools.submit_ticket(ctx)
 
 
+async def test_a_failing_note_after_filing_still_reports_the_ticket(sn, monkeypatch):
+    """Notes are added after the ticket exists; if one fails (refused, timeout), the user is still
+    told the ticket number, and submitting again never files a second ticket."""
+    async def broken(*a, **kw):
+        raise servicenow.ServiceNowError("comments refused")
+
+    monkeypatch.setattr(servicenow, "update_incident", broken)
+    monkeypatch.setattr(servicenow, "dropped_fields", broken)
+    ctx = ctx_for()
+    await pick(ctx, "123456")
+    await tools.set_issue("wont_power_on", "Dead", "critical", ctx)
+    result = await tools.submit_ticket(ctx)
+    assert result["status"] == "submitted" and result["ticket"] == sn.tables["incident"][0]["number"]
+    again = await tools.submit_ticket(ctx)
+    assert again["status"] == "already_submitted" and len(sn.tables["incident"]) == 1
+
+
 async def test_submit_links_the_device_and_the_caller(sn):
     result = await _file(ctx_for())
     ticket = sn.tables["incident"][0]
@@ -639,6 +656,34 @@ async def test_second_reporter_joins_the_open_ticket_and_gets_updates(sn):
     assert cancel["status"] == "not_permitted"  # only Jane, who reported it, can cancel
 
 
+@pytest.mark.parametrize("change", [{"status": "Resolved"}, {"urgency": "low"},
+                                    {"ship_to": "500 Warehouse Ave, Austin, TX 78701"}])
+async def test_a_follower_cannot_change_someone_elses_ticket(sn, change):
+    first = await _report_mri(ctx_for(JANE))
+    john = ctx_for(JOHN, session="sess-2")
+    await tools.select_device("CE-10421", john)
+    await tools.confirm_device(True, john)
+    await tools.follow_ticket(first["ticket"], john)
+    before = dict(sn.tables["incident"][0])
+
+    result = await tools.update_ticket(first["ticket"], john, note="please hurry", **change)
+    after = sn.tables["incident"][0]
+    assert result["status"] == "not_permitted" and result["changed"] == []
+    assert {k: after[k] for k in ("state", "urgency", "impact", "description")} == \
+        {k: before[k] for k in ("state", "urgency", "impact", "description")}
+    assert "please hurry" in after["comments_log"][-1] and "who follows this ticket" in after["comments_log"][-1]
+    assert "Only Jane Doe can change" in card_text(john)
+    # Notes alone are still fine for followers.
+    assert (await tools.add_ticket_note(first["ticket"], "still broken", john))["status"] == "ok"
+
+
+@pytest.mark.parametrize("status", ["Canceled", "Closed", "cancelled"])
+async def test_update_ticket_cannot_cancel_or_close(sn, status):
+    filed = await _file(ctx_for())
+    result = await tools.update_ticket(filed["ticket"], ctx_for(), status=status)
+    assert result["status"] == "error" and sn.tables["incident"][0]["state"] != "8"
+
+
 async def test_second_reporter_can_still_report_separately(sn):
     await _report_mri(ctx_for(JANE))
     john = ctx_for(JOHN, session="sess-2")
@@ -709,6 +754,28 @@ async def test_ship_to_my_house_resolves_to_the_saved_address(sn):
     await _to_review(ctx)
     result = await tools.update_request(ctx, delivery_location="my house")
     assert result["ship_to"] == HOME
+
+
+@pytest.mark.parametrize("typed", [
+    "500 Warehouse Ave, Austin, TX 78701",   # "house"
+    "77 Homestead Rd, Austin, TX 78702",     # "home"
+    "1 Network Way, Austin, TX 78703",       # "work"
+    "9 Home St, Austin, TX 78704",           # a street named Home
+])
+async def test_a_typed_address_is_never_swapped_for_a_saved_one(sn, typed):
+    sn.saved[JANE_EMAIL] = [{"label": "Home", "address": HOME}, {"label": "Office", "address": "1 Main St, Denver, CO"}]
+    ctx = ctx_for()
+    await _to_review(ctx)
+    result = await tools.update_request(ctx, delivery_location=typed)
+    assert result["ship_to"] == typed
+
+
+async def test_a_saved_address_typed_out_is_recognised(sn):
+    sn.saved[JANE_EMAIL] = [{"label": "Home", "address": HOME}]
+    ctx = ctx_for()
+    await _to_review(ctx)
+    await tools.update_request(ctx, delivery_location=HOME.upper().replace(",", ""))
+    assert draft(ctx)["delivery"] == {"address": HOME, "label": "Home", "kind": "permanent", "saved": True}
 
 
 async def test_a_place_name_is_not_an_address(sn):

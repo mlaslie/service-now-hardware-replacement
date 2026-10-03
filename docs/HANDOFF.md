@@ -2,7 +2,7 @@
 
 Background for anyone (or any Claude session) picking this project up. It records what was
 built, where everything lives, what went wrong and how it was fixed, and what's still open.
-Last updated 2026-10-01. `main` at `ed535c3` (all pushed, nothing uncommitted); live Cloud Run revision `00029`.
+Last updated 2026-10-01. `main` at `ed535c3` (all pushed, nothing uncommitted); live Cloud Run revision `00031` (deployed 2026-10-02, includes the H0 review fixes, not yet committed).
 
 **No secret values are in this file.** Secrets are named with where they live.
 
@@ -61,7 +61,7 @@ buttons; mobile: numbered text after a "Desktop or Mobile App?" question) for `j
 ### Google Cloud (`PROJECT_ID`, number `PROJECT_NUMBER`, region `us-central1`)
 | Resource | Name / ID | Notes |
 |---|---|---|
-| Cloud Run service | `hardware-replacement-agent` | URL `https://hardware-replacement-agent-PROJECT_NUMBER.us-central1.run.app` (the card advertises this form). Latest revision `00029`. `--no-allow-unauthenticated`, min 1 instance, concurrency 4, 1 GiB. |
+| Cloud Run service | `hardware-replacement-agent` | URL `https://hardware-replacement-agent-PROJECT_NUMBER.us-central1.run.app` (the card advertises this form). Latest revision `00031`. `--no-allow-unauthenticated`, min 1 instance, concurrency 4, 1 GiB. |
 | Runtime service account | `hardware-agent@PROJECT_ID.iam.gserviceaccount.com` | `aiplatform.user`, `logging.logWriter`, `storage.objectUser` on the bucket |
 | Cloud Run invoker | `service-PROJECT_NUMBER@gcp-sa-discoveryengine.iam.gserviceaccount.com` | `run.invoker` on the service only. This is how Gemini Enterprise calls it. |
 | Agent Runtime "state engine" | `projects/PROJECT_NUMBER/locations/us-central1/reasoningEngines/ENGINE_ID` (`hardware-replacement-state`) | **Runs no code.** Hosts managed Sessions + Memory Bank (topics: USER_PREFERENCES, delivery_and_contact, hardware_history). |
@@ -148,7 +148,8 @@ Key design rules:
   saved. Saved ones are offered only as grey review-card buttons; "looks good" never switches. Extracted
   memories mentioning deliveries are filtered out of `recall` (they were vague, e.g. "a Marriott in Chicago").
 - **Followers**: a second reporter of equipment with an open ticket joins it via the watch list.
-  Every ticket query is `caller_id = me OR watch_list LIKE me`; only the caller can cancel.
+  Every ticket query is `caller_id = me OR watch_list LIKE me`; only the caller can cancel or change
+  status, urgency or ship-to (a follower's change request becomes a note for the desk).
 - **Sessions keyed by A2A `contextId`** (user_id = `A2A_USER_<contextId>`), never by identity.
   Identity rides in state, refreshed every turn. Memory is keyed by email.
 - **ServiceNow token**: request-scoped `ContextVar`, never in state, memory or logs.

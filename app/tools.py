@@ -306,19 +306,29 @@ def _looks_like_street_address(text: str) -> bool:
     return bool(re.search(r"\d", text)) and len(text.split()) >= 3
 
 
+def _has_phrase(text: str, phrase: str) -> bool:
+    """Whole words only: "house" is in "my house" but not in "500 Warehouse Ave"."""
+    return bool(phrase) and re.search(rf"(?<!\w){re.escape(phrase)}(?!\w)", text, re.I) is not None
+
+
 def _canonical_place(text: str) -> str:
-    low = text.lower()
-    return next((name for name, words in _PLACE_ALIASES.items() if any(w in low for w in words)), "")
+    return next((name for name, words in _PLACE_ALIASES.items() if any(_has_phrase(text, w) for w in words)), "")
 
 
 def _match_saved(text: str, saved: list[dict]) -> dict | None:
-    """A saved address the user referred to: by its address, or by its label ("my house" -> Home)."""
-    key, place = memory.normalize_address(text), _canonical_place(text)
+    """A saved address the user referred to: by its address, or by its label ("my house" -> Home).
+    A typed street address is only ever matched by the address itself, so "500 Warehouse Ave" stays
+    what the user typed even with a saved "Home"."""
+    key = memory.normalize_address(text)
     for a in saved:
-        label = (a.get("label") or "").lower()
         if key and key == memory.normalize_address(a["address"]):
             return a
-        if label and (label in text.lower() or (place and _canonical_place(label) == place)):
+    if _looks_like_street_address(text):
+        return None
+    place = _canonical_place(text)
+    for a in saved:
+        label = a.get("label") or ""
+        if label and (_has_phrase(text, label) or (place and _canonical_place(label) == place)):
             return a
     return None
 
@@ -868,30 +878,14 @@ async def submit_ticket(tool_context: ToolContext) -> dict:
         if watchers:
             fields["watch_list"] = ",".join(dict.fromkeys(watchers))
         ticket = await servicenow.create_incident(fields)
-        refused = await servicenow.dropped_fields(ticket["sys_id"], {k: fields[k] for k in configured if k in fields})
-        if not ticket["description"].strip():
-            # ServiceNow drops fields the caller isn't allowed to set (e.g. without
-            # the itil role). Comments are always allowed, so the details go there.
-            await servicenow.update_incident(employee["sys_id"], ticket["number"], {
-                "comments": "Request details (added by the Hardware Replacement agent):\n\n" + fields["description"]})
-            logger.info("description not accepted by ServiceNow; details added as a note")
-        desk_notes = [f"Could not set {k} = {v!r} from the reporter's account; please set it." for k, v in refused.items()]
-        if device.get("relation") == "unconfirmed":
-            desk_notes.append(f"{device.get('ownership_note')}. Filed anyway, as the agent allows anyone to report equipment.")
-        if fields.get("assignment_group") and ticket.get("assignment_group_id") != fields["assignment_group"]:
-            desk_notes.append(f"Please route to {device.get('support_group')}, the equipment's support group; "
-                              "it could not be set from the reporter's account.")
-        if desk_notes:
-            await servicenow.update_incident(employee["sys_id"], ticket["number"], {"comments": "\n".join(desk_notes)})
-        await _attach_photos(tool_context, ticket["sys_id"], draft)
-        requested = draft["priority"].split(" ")[0]
-        if ticket["priority"] and ticket["priority"] != requested:
-            # ServiceNow derives priority itself and may drop impact/urgency the
-            # caller isn't allowed to set; record what was asked for, and why.
-            await servicenow.update_incident(employee["sys_id"], ticket["number"], {"comments": (
-                f"Requested priority {draft['priority']} ({issue.get('description', '')}); "
-                f"ServiceNow assigned priority {ticket['priority']}. Please review.")})
-            logger.info("priority %s requested, ServiceNow assigned %s", requested, ticket["priority"])
+        # Filed: record it before anything else can fail, so a retry or a double click never
+        # files twice and the user is never told it failed.
+        draft["submitted_number"], draft["submitted_url"] = ticket["number"], ticket["url"]
+        _save(tool_context, draft)
+        try:
+            await _after_filing(tool_context, employee, draft, ticket, fields, configured)
+        except Exception as exc:  # noqa: BLE001  (notes are best-effort; the ticket exists)
+            logger.warning("ticket %s filed; follow-up notes incomplete: %s", ticket["number"], type(exc).__name__)
 
     draft["assigned_priority"] = servicenow.PRIORITY_LABELS.get(ticket["priority"], ticket["priority"])
     draft["priority_note"] = "" if draft["assigned_priority"] == draft["priority"] else (
@@ -908,6 +902,37 @@ async def submit_ticket(tool_context: ToolContext) -> dict:
     _show(tool_context, cards.confirmation(ticket["number"], draft))
     return {"status": "submitted", "ticket": ticket["number"], "priority": draft["assigned_priority"],
             "requested_priority": draft["priority"], "sla": draft["sla"]}
+
+
+async def _after_filing(tool_context: ToolContext, employee: dict, draft: dict, ticket: dict, fields: dict,
+                        configured: dict) -> None:
+    """Notes and photos added once a ticket exists: details ServiceNow dropped, what the desk must
+    set, the requested priority. Best-effort: submit_ticket has already recorded the ticket."""
+    issue, device = draft["issue"], draft["device"]
+    refused = await servicenow.dropped_fields(ticket["sys_id"], {k: fields[k] for k in configured if k in fields})
+    if not ticket["description"].strip():
+        # ServiceNow drops fields the caller isn't allowed to set (e.g. without
+        # the itil role). Comments are always allowed, so the details go there.
+        await servicenow.update_incident(employee["sys_id"], ticket["number"], {
+            "comments": "Request details (added by the Hardware Replacement agent):\n\n" + fields["description"]})
+        logger.info("description not accepted by ServiceNow; details added as a note")
+    desk_notes = [f"Could not set {k} = {v!r} from the reporter's account; please set it." for k, v in refused.items()]
+    if device.get("relation") == "unconfirmed":
+        desk_notes.append(f"{device.get('ownership_note')}. Filed anyway, as the agent allows anyone to report equipment.")
+    if fields.get("assignment_group") and ticket.get("assignment_group_id") != fields["assignment_group"]:
+        desk_notes.append(f"Please route to {device.get('support_group')}, the equipment's support group; "
+                          "it could not be set from the reporter's account.")
+    if desk_notes:
+        await servicenow.update_incident(employee["sys_id"], ticket["number"], {"comments": "\n".join(desk_notes)})
+    await _attach_photos(tool_context, ticket["sys_id"], draft)
+    requested = draft["priority"].split(" ")[0]
+    if ticket["priority"] and ticket["priority"] != requested:
+        # ServiceNow derives priority itself and may drop impact/urgency the
+        # caller isn't allowed to set; record what was asked for, and why.
+        await servicenow.update_incident(employee["sys_id"], ticket["number"], {"comments": (
+            f"Requested priority {draft['priority']} ({issue.get('description', '')}); "
+            f"ServiceNow assigned priority {ticket['priority']}. Please review.")})
+        logger.info("priority %s requested, ServiceNow assigned %s", requested, ticket["priority"])
 
 
 def _configured_fields(draft: dict) -> dict[str, str]:
@@ -1083,6 +1108,11 @@ def _change(label: str, requested: str, fields: dict, verify) -> dict:
     return {"label": label, "requested": requested, "fields": fields, "verify": verify}
 
 
+# Statuses update_ticket may set. Cancel has its own tool (confirmation, reporter only);
+# closing is the service desk's.
+_USER_STATUSES = ("new", "in progress", "on hold", "resolved")
+
+
 def _state_change(target: str, reason: str) -> dict | None:
     code = servicenow.STATE_CODES.get(target.strip().lower())
     if not code:
@@ -1102,6 +1132,26 @@ def _urgency_change(urgency: str) -> dict | None:
     return _change("Urgency", urgency, {"impact": impact, "urgency": level}, lambda t, u=level: t["urgency"] == u)
 
 
+async def _follower_request(ctx: ToolContext, employee: dict, ticket: dict, changes: list[dict],
+                            note: str) -> dict:
+    """A follower asked to change someone else's ticket: only the reporter can change it, so the
+    request goes on the ticket as a note for the service desk, and nothing else is attempted."""
+    reporter = ticket.get("caller") or "the person who reported it"
+    lines = "\n".join(f"- {ch['label']}: {ch['requested']}" for ch in changes)
+    comment = (f"{employee.get('name') or 'A follower'}, who follows this ticket, asked through the Hardware "
+               f"Replacement agent for the following. Please review:\n{lines}")
+    if note.strip():
+        comment = f"{note.strip()}\n\n{comment}"
+    updated = await servicenow.update_incident(employee["sys_id"], ticket["number"], {"comments": comment})
+    asked = "; ".join(f"{c['label'].lower()} to {c['requested']}" for c in changes)
+    message = (f"Only {reporter} can change this ticket, so nothing was changed. Your request ({asked}) was "
+               "added to the ticket as a note for the service desk.")
+    result = {"status": "not_permitted", "reason": "follower", "note_added": True, "changed": [],
+              "requested_in_note": [{"change": c["label"], "value": c["requested"]} for c in changes]}
+    result["ticket"] = await _show_ticket(ctx, updated or ticket, message)
+    return result
+
+
 async def _apply_changes(ctx: ToolContext, number: str, changes: list[dict], note: str = "") -> dict:
     """The one path every ticket change takes.
 
@@ -1114,6 +1164,8 @@ async def _apply_changes(ctx: ToolContext, number: str, changes: list[dict], not
     employee, ticket = await _own_ticket(ctx, number)
     if not employee:
         return ticket
+    if changes and ticket.get("caller_id") and ticket["caller_id"] != employee["sys_id"]:
+        return await _follower_request(ctx, employee, ticket, changes, note)
     fields: dict = {}
     for ch in changes:
         fields.update(ch["fields"](ticket) if callable(ch["fields"]) else ch["fields"])
@@ -1179,7 +1231,7 @@ async def update_ticket(number: str, tool_context: ToolContext, note: str = "", 
             return {"status": "need_address", "message": found["error"]}
         ship_to = found["address"]
     if status:
-        ch = _state_change(status, note)
+        ch = _state_change(status, note) if status.strip().lower() in _USER_STATUSES else None
         if not ch:
             return {"status": "error", "message": f"Unknown status {status!r}. Use New, In Progress, On Hold or Resolved."}
         changes.append(ch)
@@ -1254,7 +1306,7 @@ async def cancel_ticket(number: str, reason: str, tool_context: ToolContext) -> 
     if ticket.get("caller_id") and ticket["caller_id"] != employee["sys_id"]:
         return {"status": "not_permitted", "message": (
             f"Only the person who reported {number} ({ticket.get('caller') or 'someone else'}) can cancel it. "
-            "The user follows it. Offer to add a note, e.g. that it is working again, or to stop following.")}
+            "The user follows it. Offer to add a note instead, e.g. that it is working again.")}
     reason = f"Canceled by the requester. Reason: {reason.strip()}"
     return await _apply_changes(tool_context, number, [_state_change("canceled", reason)], reason)
 
