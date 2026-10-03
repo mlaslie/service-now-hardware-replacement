@@ -158,7 +158,8 @@ Gemini Enterprise ──A2A (message/stream)──▶ Cloud Run: this agent
    ▼
  app/server.py   resolve user from ServiceNow, stage photos as artifacts, A2UI clicks -> text
  app/agent.py    LlmAgent (gemini-3.8-flash, global), card swap-in callbacks
- app/tools.py    wizard + ticket tools, one attempt/verify/note path for every change
+ app/tools/      wizard (intake), review, filing, tickets, devices, addresses;
+                 one attempt/verify/note path for every change (tickets.py)
  app/cards.py    deterministic A2UI v0.9 cards (the model never writes UI JSON), v0.8 and text renderings
  app/vision.py   structured photo analysis
  app/servicenow.py  Table API client, always as the signed-in user; ticket queries are

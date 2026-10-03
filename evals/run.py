@@ -40,6 +40,7 @@ from google.adk.runners import InMemoryRunner  # noqa: E402
 from google.genai import types  # noqa: E402
 
 from app import agent as agent_mod, cards, memory, servicenow, tools, vision  # noqa: E402
+from app.tools import filing  # noqa: E402
 from app.vision import PhotoFindings  # noqa: E402
 from tests import test_paths as fakes  # noqa: E402  (FakeTableAPI, PROFILES, ...)
 
@@ -71,7 +72,7 @@ def install_fakes(case: dict) -> fakes.FakeTableAPI:
 
     memory.recall, memory.remember_conversation = recall, remember
     memory.saved_addresses, memory.save_address = saved_addresses, save_address
-    tools._attach_photos = attach
+    filing._attach_photos = attach
 
     photo = case.get("photo")
     if photo:

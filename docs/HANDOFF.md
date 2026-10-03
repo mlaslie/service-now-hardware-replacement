@@ -124,9 +124,9 @@ Gemini Enterprise (2H-2026) ──A2A message/stream (SSE)──▶ Cloud Run: h
         │                     Custom request converter puts identity + photo refs in state_delta.
         ├─ app/agent.py       LlmAgent + instruction; after_model_callback swaps the model's final
         │                     text for the card a tool staged in temp:card; history compaction
-        ├─ app/tools.py       wizard (start/select_device/set_issue/analyze_photos/skip_photo/
-        │                     update_request/show_review/submit_ticket) + tickets (list/get/
-        │                     update_ticket/add_note/change_shipping/request_urgent/cancel)
+        ├─ app/tools/         intake.py wizard (start/select_device/set_issue/analyze_photos/...),
+        │                     review.py next step, filing.py submit_ticket, tickets.py (list/get/
+        │                     update_ticket/add_note/cancel/follow), devices.py, addresses.py
         ├─ app/cards.py       deterministic A2UI v0.9 cards (+ to_v08, to_text); the model never writes UI JSON
         ├─ app/servicenow.py  Table API as the user; every ticket query scoped caller_id+hardware
         ├─ app/vision.py      structured photo findings (pydantic schema)

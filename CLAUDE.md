@@ -18,4 +18,4 @@ steps, problems already solved, lessons learned and open items.
   check with `uv run python -m app.profile`. Docs: `docs/INSTALL.md`, `CONFIGURATION.md`, `ROLES.md`,
   `ARCHITECTURE.md`, `docs/site/index.html`.
 - The agent acts in ServiceNow as the signed-in user. Never claim a change succeeded without
-  reading it back (`_apply_changes` in `app/tools.py`).
+  reading it back (`_apply_changes` in `app/tools/tickets.py`).

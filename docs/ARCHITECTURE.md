@@ -121,7 +121,11 @@ sequenceDiagram
 | Project, region, ServiceNow instance, model | `.env` (see `.env.example`) |
 | What the agent is told (routing rules) | `app/agent.py` `_FLOW`; persona in the profile |
 | Card layout | `app/cards.py` |
-| Steps, device matching, ownership, addresses, ticket changes | `app/tools.py` |
+| Request steps (wizard) | `app/tools/intake.py`, next step and review rules in `app/tools/review.py` |
+| Device lookup, matching, ownership | `app/tools/devices.py` |
+| Ship-to addresses | `app/tools/addresses.py` |
+| Filing a ticket (one per request) | `app/tools/filing.py` |
+| Existing tickets: show, change, cancel, follow | `app/tools/tickets.py` |
 | ServiceNow calls and field mapping | `app/servicenow.py` |
 | Who the user is | `app/identity.py` |
 | Photos in, clicks in, desktop/mobile question | `app/inbound.py` |

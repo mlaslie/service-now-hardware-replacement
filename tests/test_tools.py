@@ -1,4 +1,5 @@
-from app.tools import _photo_mismatch, replace_ship_to
+from app.tools import replace_ship_to, tickets
+from app.tools.review import _photo_mismatch
 
 THINKPAD = {"in_inventory": True, "manufacturer": "Lenovo", "model": "ThinkPad X1 Carbon Gen 11", "device_type": "laptop"}
 
@@ -45,9 +46,9 @@ async def test_change_not_applied_is_noted_and_reported(monkeypatch):
     async def show(ctx, t, note=""):
         return {"note": note}
 
-    monkeypatch.setattr(tools, "_own_ticket", own)
+    monkeypatch.setattr(tickets, "_own_ticket", own)
     monkeypatch.setattr(servicenow, "update_incident", update)
-    monkeypatch.setattr(tools, "_show_ticket", show)
+    monkeypatch.setattr(tickets, "_show_ticket", show)
 
     result = await tools.update_ticket("INC1", object(), note="tracking number doesn't work", status="In Progress")
     assert result["changed"] == []

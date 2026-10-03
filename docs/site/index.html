@@ -387,7 +387,11 @@ sequenceDiagram
           <tr><td>Project, region, ServiceNow instance, model</td><td><code>.env</code></td></tr>
           <tr><td>Routing rules the model follows</td><td><code>app/agent.py</code> (persona: the profile)</td></tr>
           <tr><td>Card layout</td><td><code>app/cards.py</code></td></tr>
-          <tr><td>Steps, device matching, ownership, addresses, ticket changes</td><td><code>app/tools.py</code></td></tr>
+          <tr><td>Request steps (wizard); next step and review rules</td><td><code>app/tools/intake.py</code>, <code>app/tools/review.py</code></td></tr>
+          <tr><td>Device lookup, matching, ownership</td><td><code>app/tools/devices.py</code></td></tr>
+          <tr><td>Ship-to addresses</td><td><code>app/tools/addresses.py</code></td></tr>
+          <tr><td>Filing a ticket (one per request)</td><td><code>app/tools/filing.py</code></td></tr>
+          <tr><td>Existing tickets: show, change, cancel, follow</td><td><code>app/tools/tickets.py</code></td></tr>
           <tr><td>ServiceNow calls and field mapping</td><td><code>app/servicenow.py</code></td></tr>
           <tr><td>Photos in, clicks in, desktop/mobile question</td><td><code>app/inbound.py</code></td></tr>
           <tr><td>Photo reading</td><td><code>app/vision.py</code></td></tr>

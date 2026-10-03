@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from app import cards, memory, servicenow, tools, vision
+from app.tools import filing
 from app.vision import PhotoFindings
 
 import re
@@ -142,7 +143,7 @@ def sn(monkeypatch):
     monkeypatch.setattr(memory, "remember_conversation", remember)
     monkeypatch.setattr(memory, "saved_addresses", saved_addresses)
     monkeypatch.setattr(memory, "save_address", save_address)
-    monkeypatch.setattr(tools, "_attach_photos", attach)
+    monkeypatch.setattr(filing, "_attach_photos", attach)
     return api
 
 
