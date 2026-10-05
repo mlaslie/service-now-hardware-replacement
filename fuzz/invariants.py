@@ -39,6 +39,12 @@ INVARIANTS: dict[str, dict] = {
            "severity": "P1", "layer": "tools", "location": "app/tools servicenow_errors and every tool"},
     "T8": {"title": "A change is reported as done only if ServiceNow stored it",
            "severity": "P0", "layer": "tools", "location": "app/tools _apply_changes, follow_ticket, submit_ticket"},
+    "T9": {"title": "A close code or hold reason written is always one of the profile's configured values",
+           "severity": "P1", "layer": "tools", "location": "app/tools/tickets _state_change; profile servicenow.close_codes"},
+    "T10": {"title": "With a ship-to field configured, the field and the ticket's Ship to line always agree",
+            "severity": "P0", "layer": "tools", "location": "app/tools/filing, tickets update_ticket; servicenow.SHIP_TO_FIELD"},
+    "T11": {"title": "Following or unfollowing never drops or adds anyone else, even when servers write at once",
+            "severity": "P0", "layer": "servicenow", "location": "app/servicenow _set_watching, follow_incident"},
     "C1": {"title": "Every card is valid A2UI v0.9 (and v0.8 after translation)",
            "severity": "P1", "layer": "cards", "location": "app/cards Card, to_v08"},
     "C2": {"title": "Text mode: numbered lines match the stored options; a number maps to exactly that option; "
@@ -240,7 +246,8 @@ def check_writes(log: list[dict], start: int = 0, inv: str = "T1") -> None:
                   "watch list change touches someone other than the acting user", before=old, after=new, user=user,
                   number=before.get("number"))
         if _caller(before) == user:
-            extra = set(fields) - _OWN_FIELDS
+            from app import servicenow  # the organization's ship-to field, when configured (R4)
+            extra = set(fields) - _OWN_FIELDS - ({servicenow.SHIP_TO_FIELD} if servicenow.SHIP_TO_FIELD else set())
             check(not extra, inv, f"unexpected fields written on own ticket: {sorted(extra)}",
                   number=before.get("number"), fields=sorted(fields))
             continue
@@ -414,3 +421,27 @@ def check_reported_changes(tool: str, args: dict, result: dict, api, user: str, 
         if note:
             check(any(note[:60] in collapse(c) for c in row.get("comments_log") or []), inv,
                   "reported the note added, but ServiceNow has no such comment", number=number, note=note[:200])
+
+
+def check_choice_values(log: list[dict], start: int, close_codes: set[str], hold_reason: str, inv: str = "T9") -> None:
+    """Every close code / hold reason the agent writes is one the profile configures."""
+    for entry in log[start:]:
+        body = entry.get("json") or {}
+        if entry.get("method") not in ("POST", "PATCH"):
+            continue
+        if "close_code" in body:
+            check(body["close_code"] in close_codes, inv, f"close_code {body['close_code']!r} is not configured",
+                  configured=sorted(close_codes))
+        if "hold_reason" in body:
+            check(str(body["hold_reason"]) == str(hold_reason), inv,
+                  f"hold_reason {body['hold_reason']!r} is not the configured {hold_reason!r}")
+
+
+def check_ship_to_field(incidents: list[dict], field: str, inv: str = "T10") -> None:
+    """The ship-to field and the description's Ship to line say the same thing (when both exist)."""
+    for row in incidents:
+        lines = ship_to_lines(row.get("description") or "")
+        value = collapse(row.get(field) or "")
+        if lines and value:
+            check(collapse(lines[-1]) == value, inv, f"{row.get('number')}: field says {value!r}, line says "
+                  f"{collapse(lines[-1])!r}", number=row.get("number"))

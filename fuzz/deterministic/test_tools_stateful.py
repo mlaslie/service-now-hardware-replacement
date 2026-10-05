@@ -26,7 +26,7 @@ from fuzz import strategies as S
 from fuzz.fakes import ANA, JANE, JOHN, AuditedTableAPI, World, clear_filing_memory, ctx_for
 from fuzz.invariants import (check, check_filed, check_queries, check_reported_changes, check_result_shape,
                              check_ship_to, check_unique_tickets, check_visibility, check_writes, collapse,
-                             equipment_exceptions, fail, shown_numbers)
+                             check_choice_values, check_ship_to_field, equipment_exceptions, fail, shown_numbers)
 
 pytestmark = pytest.mark.fuzz
 
@@ -294,6 +294,19 @@ class ToolsMachine(RuleBasedStateMachine):
         check_unique_tickets(self.api.tables["incident"])
 
     @invariant()
+    def close_codes_are_configured(self):
+        """T9: whatever ends a ticket or puts it on hold uses the profile's values."""
+        settings = cards.PROFILE.servicenow
+        check_choice_values(self.api.log, 0, {settings.close_codes.resolve, settings.close_codes.cancel},
+                            settings.hold_reason)
+
+    @invariant()
+    def ship_to_field_agrees(self):
+        """T10: when the organization has a ship-to field, it and the Ship to line never disagree."""
+        if servicenow.SHIP_TO_FIELD:
+            check_ship_to_field(self.api.tables["incident"], servicenow.SHIP_TO_FIELD)
+
+    @invariant()
     def others_tickets_keep_their_fields(self):
         """T1 on the stored data: Ana's tickets keep caller, state, urgency and description."""
         for row in self.api.tables["incident"]:
@@ -329,18 +342,41 @@ class ChaosMachine(ToolsMachine):
     CHAOS = 0.1
 
 
+class ConfiguredMachine(ToolsMachine):
+    """The same rules with an organization's own settings: a ship-to field and non-default close codes and
+    hold reason (R2, R4). Hostile text, so free text tries to break the field/line agreement too."""
+    TEXT = S.hostile_text.map(lambda t: t)
+
+    def __init__(self):
+        super().__init__()
+        settings = cards.PROFILE.servicenow
+        self._saved = (servicenow.SHIP_TO_FIELD, settings.close_codes.resolve, settings.close_codes.cancel,
+                       settings.hold_reason)
+        servicenow.SHIP_TO_FIELD = "u_ship_to"
+        settings.close_codes.resolve, settings.close_codes.cancel = "Workaround provided", "Duplicate"
+        settings.hold_reason = "4"
+
+    def teardown(self):
+        settings = cards.PROFILE.servicenow
+        (servicenow.SHIP_TO_FIELD, settings.close_codes.resolve, settings.close_codes.cancel,
+         settings.hold_reason) = self._saved
+        super().teardown()
+
+
 def _machine_test(machine, ci, deep):
     test = machine.TestCase
     test.settings = settings(max_examples=S.examples(ci, deep))
     return test
 
 
-TestHostileText = pytest.mark.invariants("T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "C1")(
+TestHostileText = pytest.mark.invariants("T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "C1")(
     _machine_test(HostileTextMachine, 250, 2500))
-TestAccess = pytest.mark.invariants("T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "C1")(
+TestAccess = pytest.mark.invariants("T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "C1")(
     _machine_test(AccessMachine, 250, 2500))
-TestChaos = pytest.mark.invariants("T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "C1")(
+TestChaos = pytest.mark.invariants("T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "C1")(
     _machine_test(ChaosMachine, 200, 2000))
+TestConfigured = pytest.mark.invariants("T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "C1")(
+    _machine_test(ConfiguredMachine, 200, 2000))
 
 
 # --- concurrent and retried submits (T4) ------------------------------------------------------

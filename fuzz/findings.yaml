@@ -12,7 +12,7 @@ findings:
   - id: F1
     invariant: T5/T8
     severity: P0
-    found_by: deterministic (free text with a "Ship to:" line)
+    found_by: "deterministic (free text with a \"Ship to:\" line)"
     summary: >-
       A line starting "Ship to:" in the problem description or the photo's damage description added a
       second ship-to line to the ticket; a later ship-to change then edited the wrong line and was
@@ -23,7 +23,7 @@ findings:
   - id: F2
     invariant: M2
     severity: P0
-    found_by: model (typos-laptop)
+    found_by: "model (typos-laptop)"
     summary: >-
       After a change brought back the photo step, "looks good, send it" skipped the photo and filed in
       the same turn, so the user never saw the updated review (category and urgency had changed).
@@ -35,7 +35,7 @@ findings:
   - id: F3
     invariant: T1
     severity: P0
-    found_by: deterministic (chaos: a ticket returned without its reporter)
+    found_by: "deterministic (chaos: a ticket returned without its reporter)"
     summary: >-
       The follower check failed open: when ServiceNow didn't return a ticket's reporter, a follower's
       urgency change went through.
@@ -45,7 +45,7 @@ findings:
   - id: F4
     invariant: T3
     severity: P0
-    found_by: deterministic (profile with query operators)
+    found_by: "deterministic (profile with query operators)"
     summary: A ticket_category such as "hardware^NQnumber=INC..." loaded and widened every ticket query.
     fix: ticket_category and asset_tables are validated as plain names when the profile loads.
     where: app/profile.py ServiceNowSettings
@@ -53,7 +53,7 @@ findings:
   - id: F5
     invariant: T7
     severity: P1
-    found_by: deterministic (24 wrong-type arguments)
+    found_by: "deterministic (24 wrong-type arguments)"
     summary: Tools crashed when the model sent null, a number or a list where text or yes/no was expected.
     fix: Every tool's arguments are coerced to their declared types before it runs.
     where: app/tools/_common.py servicenow_errors
@@ -61,7 +61,7 @@ findings:
   - id: F6
     invariant: T7
     severity: P1
-    found_by: deterministic
+    found_by: "deterministic"
     summary: update_request with a description or urgency before a problem was picked crashed the next step.
     fix: Details given early are kept; the problem picker still shows until a category is chosen.
     where: app/tools/review.py _next_step, app/tools/filing.py submit_ticket
@@ -69,7 +69,7 @@ findings:
   - id: F7
     invariant: C2
     severity: P1
-    found_by: deterministic
+    found_by: "deterministic"
     summary: A lone carriage return in card text started a fake numbered option in mobile text mode.
     fix: Every line-break character is normalised before markdown escaping.
     where: app/cards.py md_escape
@@ -77,7 +77,7 @@ findings:
   - id: F8
     invariant: I1
     severity: P1
-    found_by: deterministic
+    found_by: "deterministic"
     summary: A click whose [{key, value}] context had a non-text key failed the whole turn.
     fix: Such entries are skipped; keys are text.
     where: app/inbound.py action_context
@@ -85,7 +85,7 @@ findings:
   - id: F9
     invariant: P1/P2
     severity: P1
-    found_by: deterministic
+    found_by: "deterministic"
     summary: >-
       A profile saved as Latin-1, or a list at the top level, raised a raw error; a persona containing
       {organization} loaded but failed every turn (ADK state injection).
@@ -95,7 +95,7 @@ findings:
   - id: F10
     invariant: S1/S2
     severity: P1
-    found_by: deterministic (odd ServiceNow answers)
+    found_by: "deterministic (odd ServiceNow answers)"
     summary: >-
       Empty 2xx answers, a body labelled gzip that isn't, {"result": null}, {"error": "text"} and
       non-text field values escaped as KeyError / DecodingError / AttributeError.
@@ -107,7 +107,7 @@ findings:
   - id: H1
     invariant: M3
     severity: P0
-    found_by: model (inj-sn-note)
+    found_by: "model (inj-sn-note)"
     summary: >-
       Flagged a note and ship-to the user typed themselves ("ship to ..., reference ...") as an injection.
       Doing what the user asked is correct; M3 now covers text from photos and ServiceNow only.
@@ -116,15 +116,52 @@ findings:
   - id: H2
     invariant: T1
     severity: P0
-    found_by: deterministic
+    found_by: "deterministic"
     summary: Unfollowing (new feature F7 of the backlog) removes the user from the watch list; the invariant allowed only adding.
     fix: Harness (fuzz/invariants.py) now allows adding or removing yourself only.
     status: harness
   - id: F11
     invariant: T6
     severity: P1
-    found_by: deterministic (chaos: a device record with every field blank)
+    found_by: "deterministic (chaos: a device record with every field blank)"
     summary: A request could be filed for a device with no asset tag, serial or model ("Device:" blank).
     fix: submit_ticket asks for the device again when nothing identifies it.
     where: app/tools/filing.py submit_ticket
     status: fixed
+
+# Round 2 (2026-10-05): review fixes R1-R4, new invariants T9-T11.
+  - id: R2
+    invariant: T9
+    severity: P1
+    found_by: "review (confirmed on the reference instance)"
+    summary: >-
+      Cancel and resolve wrote the hard-coded close code "Solved Remotely (Permanently)", which isn't a
+      choice on the reference instance; hold reason was hard-coded too.
+    fix: Close codes and hold reason come from the profile and are checked against the instance; T9 checks every write.
+    where: app/tools/tickets.py _state_change, app/profile.py CloseCodes
+    status: fixed
+  - id: R3
+    invariant: T11
+    severity: P0
+    found_by: "review; reproduced by test_follow_race (without the re-check, 34 of 200 cross-server runs lost or kept someone)"
+    summary: Two people following or unfollowing the same ticket at once could drop one of them.
+    fix: >-
+      Changes to one ticket's watch list take turns in a server, are read back and retried (also after a
+      business-rule refusal of a stale list), and are re-checked shortly after; the note is a separate write.
+    where: app/servicenow.py _set_watching, follow_incident, unfollow_incident
+    status: fixed
+  - id: R4
+    invariant: T10
+    severity: P1
+    found_by: "review"
+    summary: The ship-to address lived only as a line in the description.
+    fix: Optional servicenow.ship_to_field; a machine with it on (TestConfigured) checks field and line always agree.
+    where: app/tools/filing.py, tickets.py, servicenow.py SHIP_TO_FIELD
+    status: fixed
+  - id: H3
+    invariant: T1
+    severity: P0
+    found_by: "deterministic (TestConfigured)"
+    summary: The harness's list of fields allowed on one's own ticket didn't include the configured ship-to field.
+    fix: Harness (fuzz/invariants.py).
+    status: harness

@@ -124,9 +124,13 @@ def fixes(det, model) -> str:
     """fuzz/findings.yaml: what earlier runs found and what was done, with the baseline next to now."""
     try:
         import yaml  # optional: the report still builds without PyYAML, just without this section
-        data = yaml.safe_load(FINDINGS.read_text(encoding="utf-8")) or {}
-    except Exception:  # noqa: BLE001
+    except ImportError:
         return ""
+    try:
+        data = yaml.safe_load(FINDINGS.read_text(encoding="utf-8")) or {}
+    except Exception as exc:  # noqa: BLE001  (shown, never hidden: a broken file must not drop the section)
+        return (f'<section id="fixes"><h2>Findings and fixes</h2><p class="bad">fuzz/findings.yaml could not be '
+                f'read: {e(type(exc).__name__)}: {e(str(exc)[:300])}</p></section>')
     base = data.get("baseline") or {}
     tests = (det or {}).get("tests", [])
     now_det = Counter(t["outcome"] for t in tests)

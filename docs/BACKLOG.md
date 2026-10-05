@@ -100,6 +100,11 @@ Plan: `docs/FUZZING_PLAN.md`. Harness: `fuzz/` (`fuzz/README.md`). Findings and 
 user seeing the changed review, a fail-open follower check, query operators in the profile, wrong-type tool
 arguments, details before a problem, fake text-mode options from a lone CR, odd click contexts, profile
 encoding and persona braces, malformed ServiceNow answers, a blank device record). 2 harness corrections.
+**Round 2 (2026-10-05, after R1-R4):** new invariants T9 (configured close codes and hold reason), T10 (ship-to field
+and line agree), T11 (following never loses anyone, also across servers); a machine with the organization's own
+settings (TestConfigured) and a cross-server follow test (without the re-check 34 of 200 runs lost someone; with it
+none). Result: deterministic 119 of 119, model 84 of 84 (about $0.82). The report's findings section had been
+silently missing (a YAML error in `fuzz/findings.yaml`): fixed, now shown even when the file is broken, and tested.
 Rerun: `uv run --group dev python fuzz/run_all.py --with-model --workers 6 --budget-minutes 25`.
 
 ---

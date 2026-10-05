@@ -2,7 +2,7 @@
 
 Background for anyone (or any Claude session) picking this project up. It records what was
 built, where everything lives, what went wrong and how it was fixed, and what's still open.
-Last updated 2026-10-05. `main` at `0751e01` or later (all pushed); live Cloud Run revision `00032` (deployed 2026-10-05 from `5cd04eb`: everything through the fuzzing fixes; non-root container; smoke test passed).
+Last updated 2026-10-05. `main` at `0751e01` or later (all pushed); live Cloud Run revision `00033` (deployed 2026-10-05 from `f730e3b`: R1-R4; smoke test passed).
 
 **No secret values are in this file.** Secrets are named with where they live.
 
@@ -37,6 +37,7 @@ buttons; mobile: numbered text after a "Desktop or Mobile App?" question) for `j
 | 10-01 | README overview rewritten (also in the HTML docs); demo users made generic and configurable (Jane/John Doe, `demo_role`, `demo/build_demo.py`); agent-card updates by editing the agent in GE (no re-add) |
 | 10-01 | Ticket field mapping + `sn_profile.py`; model-routing evals (found and fixed a dropped-problem bug); custom role `u_hardware_requester` created and measured; Jane moved to it; registration screenshots; README overview rewritten |
 | 10-02 | Full code review (4 parallel reviewers); backlog section H; H0 fixes deployed (revision 00031): substring address swap, query injection via ticket numbers/serials, followers changing others' tickets, empty mobile text on v0.8, error after filing, follower-list rule in the custom role |
+| 10-05 | Personal data removed (local `*.local.md` files, history rewritten), repo made public; review fixes R1-R4 (revision 00033); fuzzing round 2 (T9-T11): 119/119 and 84/84 |
 | 10-03 | Fuzzing: `fuzz/` (Hypothesis + 84 model conversations), 11 defects found and fixed, report published as a private artifact; evals 14/14 |
 | 10-03 | H1-H3 robustness and tests; `app/tools/` package; card wording in `config/messages.yaml`; profile `features` + `requester_changes`; D1, D6, D8-D12, F5, F7; docs set (decisions, user guide, runbook, privacy, costs, troubleshooting, customize, changelog); `scripts/smoke.py`, `print_registration.py`, `ops/observability.sh`; fuzzing harness (`fuzz/`) |
 
@@ -64,7 +65,7 @@ buttons; mobile: numbered text after a "Desktop or Mobile App?" question) for `j
 ### Google Cloud (`PROJECT_ID`, number `PROJECT_NUMBER`, region `us-central1`)
 | Resource | Name / ID | Notes |
 |---|---|---|
-| Cloud Run service | `hardware-replacement-agent` | URL `https://hardware-replacement-agent-PROJECT_NUMBER.us-central1.run.app` (the card advertises this form). Latest revision `00032`. `--no-allow-unauthenticated`, min 1 instance, concurrency 4, 1 GiB. |
+| Cloud Run service | `hardware-replacement-agent` | URL `https://hardware-replacement-agent-PROJECT_NUMBER.us-central1.run.app` (the card advertises this form). Latest revision `00033`. `--no-allow-unauthenticated`, min 1 instance, concurrency 4, 1 GiB. |
 | Runtime service account | `hardware-agent@PROJECT_ID.iam.gserviceaccount.com` | `aiplatform.user`, `logging.logWriter`, `storage.objectUser` on the bucket |
 | Cloud Run invoker | `service-PROJECT_NUMBER@gcp-sa-discoveryengine.iam.gserviceaccount.com` | `run.invoker` on the service only. This is how Gemini Enterprise calls it. |
 | Agent Runtime "state engine" | `projects/PROJECT_NUMBER/locations/us-central1/reasoningEngines/ENGINE_ID` (`hardware-replacement-state`) | **Runs no code.** Hosts managed Sessions + Memory Bank (topics: USER_PREFERENCES, delivery_and_contact, hardware_history). |

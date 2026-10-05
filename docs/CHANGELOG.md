@@ -6,6 +6,19 @@ the Cloud Run revisions of the reference deployment, given for orientation only.
 Each entry has an **Action needed** line for operators who already run the agent. After any
 update: `uv run python -m app.profile`, then `./scripts/deploy.sh`.
 
+## 2026-10-05
+
+**Review fixes R1-R4** (`f730e3b`, revision 00033)
+- Correlation id cleaned before queries; close codes and hold reason from the profile (the old hard-coded close code
+  wasn't a choice on the reference instance); following/unfollowing safe when people act at once, also across
+  servers; optional `servicenow.ship_to_field`.
+- Action needed: run `uv run python scripts/sn_profile.py check`. If it reports `close_code` values that aren't
+  choices on your instance, set `servicenow.close_codes` in `config/organization.yaml`. To use a ship-to field,
+  create it in ServiceNow and set `servicenow.ship_to_field`.
+
+**Personal data out of the repository** (history rewritten before the repo went public)
+- Action needed: re-clone; any old clone has the previous history.
+
 ## 2026-10-03
 
 **Fixes from fuzzing** (`a5e2373` and the next commit, BACKLOG I)
