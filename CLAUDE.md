@@ -1,5 +1,8 @@
 # Project notes for Claude
 
+Real environment values (project, instance, people) are in the uncommitted `CLAUDE.local.md` and
+`docs/HANDOFF.local.md`; committed files use placeholders (PROJECT_ID, INSTANCE, Jane/John Doe).
+
 Start with `docs/HANDOFF.md` (then `docs/BACKLOG.md` for what is next): it covers resources, secrets (names only), GitHub and deploy
 steps, problems already solved, lessons learned and open items.
 
@@ -10,7 +13,8 @@ steps, problems already solved, lessons learned and open items.
 - Unit tests: `uv run --group seed pytest` (check the exit code before committing; don't pipe it through `tail` in a commit chain). Model-routing evals: `uv run python evals/run.py`.
 - ServiceNow admin tools (sign in with `seed/sn_seed.py login`): `scripts/sn_doctor.py` (permission checker), `scripts/sn_profile.py` (profile vs. instance), `scripts/sn_custom_role.py`.
 - Run scripts from the repo root.
-- Never commit personal data: this environment's users live in the uncommitted `seed/users.json` (demo run sheet:
+- Never commit personal data (`tests/test_no_pii.py` checks every tracked file against the local
+  `.pii-patterns`): this environment's users live in the uncommitted `seed/users.json` (demo run sheet:
   `uv run python demo/build_demo.py` -> `demo/DEMO.local.html`); committed examples use Jane/John Doe at example.com.
   After changing `demo/DEMO.template.html`, rebuild the committed sheet with `--example`.
 - Deploy: `./scripts/deploy.sh` (reads `.env`, which is local and not committed).

@@ -13,3 +13,8 @@ demo/DEMO.local.html
 fuzz/results/
 fuzz/report/
 fuzz/.hypothesis/
+
+# Local-only environment details and personal data (never committed)
+CLAUDE.local.md
+docs/*.local.md
+.pii-patterns

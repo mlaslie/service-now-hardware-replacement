@@ -1,6 +1,5 @@
 """The demo run sheet: built from the template and the demo users, nothing personal committed."""
 
-import re
 import sys
 from pathlib import Path
 
@@ -13,7 +12,7 @@ def test_example_build_is_complete_and_generic():
     html = build_demo.render(ROOT / "seed" / "users.example.json", "https://<instance>.service-now.com", "<repo>")
     assert "{{" not in html
     assert "Jane Doe" in html and "John Doe" in html and "jane.doe@example.com" in html
-    assert not re.search(r"personal-domain|INSTANCE|/Users/", html)
+    # No personal data: tests/test_no_pii.py checks every committed file.
 
 
 def test_committed_demo_matches_the_template():
@@ -32,4 +31,4 @@ def test_other_users_fill_in(tmp_path):
 
 def test_example_users_are_generic():
     text = (ROOT / "seed" / "users.example.json").read_text()
-    assert "example.com" in text and not re.search(r"personal-patterns", text, re.I)
+    assert "example.com" in text  # and no personal data: tests/test_no_pii.py checks every tracked file
