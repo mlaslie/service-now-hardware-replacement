@@ -2,7 +2,7 @@
 
 Background for anyone (or any Claude session) picking this project up. It records what was
 built, where everything lives, what went wrong and how it was fixed, and what's still open.
-Last updated 2026-10-03. `main` at `ed535c3` (all pushed, nothing uncommitted); live Cloud Run revision `00031` (deployed 2026-10-02, includes the H0 review fixes, not yet committed).
+Last updated 2026-10-03. `main` at `ed535c3` (all pushed, nothing uncommitted); live Cloud Run revision `00032` (deployed 2026-10-05 from `5cd04eb`: everything through the fuzzing fixes; non-root container; smoke test passed).
 
 **No secret values are in this file.** Secrets are named with where they live.
 
@@ -64,7 +64,7 @@ buttons; mobile: numbered text after a "Desktop or Mobile App?" question) for `j
 ### Google Cloud (`PROJECT_ID`, number `PROJECT_NUMBER`, region `us-central1`)
 | Resource | Name / ID | Notes |
 |---|---|---|
-| Cloud Run service | `hardware-replacement-agent` | URL `https://hardware-replacement-agent-PROJECT_NUMBER.us-central1.run.app` (the card advertises this form). Latest revision `00031`. `--no-allow-unauthenticated`, min 1 instance, concurrency 4, 1 GiB. |
+| Cloud Run service | `hardware-replacement-agent` | URL `https://hardware-replacement-agent-PROJECT_NUMBER.us-central1.run.app` (the card advertises this form). Latest revision `00032`. `--no-allow-unauthenticated`, min 1 instance, concurrency 4, 1 GiB. |
 | Runtime service account | `hardware-agent@PROJECT_ID.iam.gserviceaccount.com` | `aiplatform.user`, `logging.logWriter`, `storage.objectUser` on the bucket |
 | Cloud Run invoker | `service-PROJECT_NUMBER@gcp-sa-discoveryengine.iam.gserviceaccount.com` | `run.invoker` on the service only. This is how Gemini Enterprise calls it. |
 | Agent Runtime "state engine" | `projects/PROJECT_NUMBER/locations/us-central1/reasoningEngines/ENGINE_ID` (`hardware-replacement-state`) | **Runs no code.** Hosts managed Sessions + Memory Bank (topics: USER_PREFERENCES, delivery_and_contact, hardware_history). |
