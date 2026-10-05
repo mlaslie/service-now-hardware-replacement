@@ -2,7 +2,7 @@
 
 Background for anyone (or any Claude session) picking this project up. It records what was
 built, where everything lives, what went wrong and how it was fixed, and what's still open.
-Last updated 2026-10-03. `main` at `ed535c3` (all pushed, nothing uncommitted); live Cloud Run revision `00032` (deployed 2026-10-05 from `5cd04eb`: everything through the fuzzing fixes; non-root container; smoke test passed).
+Last updated 2026-10-05. `main` at `0751e01` or later (all pushed); live Cloud Run revision `00032` (deployed 2026-10-05 from `5cd04eb`: everything through the fuzzing fixes; non-root container; smoke test passed).
 
 **No secret values are in this file.** Secrets are named with where they live.
 
