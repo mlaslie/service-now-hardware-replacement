@@ -53,6 +53,7 @@ CASES = Path(__file__).with_name("cases.yaml")
 def install_fakes(case: dict) -> fakes.FakeTableAPI:
     api = fakes.FakeTableAPI()
     servicenow._request = api
+    servicenow.WATCH_RECHECK_SECONDS = 0
     saved = {fakes.JANE_EMAIL: list(case.get("saved_addresses", []))}
 
     async def recall(ctx, email):

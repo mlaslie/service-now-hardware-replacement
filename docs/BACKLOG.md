@@ -104,6 +104,20 @@ Rerun: `uv run --group dev python fuzz/run_all.py --with-model --workers 6 --bud
 
 ---
 
+## J. Review findings R1-R5 (2026-10-05)
+
+- [x] R1 Correlation id cleaned before it goes into a query (`servicenow.correlation_key`). Not exploitable as deployed (the
+  session store validates conversation ids), now independent of that.
+- [x] R2 Close codes and hold reason from the profile (`servicenow.close_codes`, `hold_reason`), checked by `sn_profile.py
+  check`. The old hard-coded "Solved Remotely (Permanently)" wasn't a choice on the reference instance.
+- [x] R3 Following and unfollowing: changes to one ticket's watch list take turns, are read back and retried (also when
+  the follow-only business rule refuses a stale list), and are re-checked shortly after; the note is a separate write.
+- [x] R4 Optional `servicenow.ship_to_field` (e.g. `u_ship_to`): the address is written there and checked against it;
+  the description keeps its "Ship to:" line.
+- [ ] R5 Business rules mixed with ADK session code: planned as phase 1 of the MCP server work (`servicenow-mcp`).
+
+---
+
 ## G. Adoption kit: easy to understand, install and customize
 
 Goal: another organization can read how the agent works in an hour, install it on their own

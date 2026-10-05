@@ -122,6 +122,7 @@ class FakeTableAPI:
 def sn(monkeypatch):
     api = FakeTableAPI()
     monkeypatch.setattr(servicenow, "_request", api)
+    monkeypatch.setattr(servicenow, "WATCH_RECHECK_SECONDS", 0)  # no wait for the follow re-check in tests
 
     async def recall(ctx, email):
         return []
@@ -1168,3 +1169,65 @@ async def test_a_device_with_nothing_to_identify_it_is_not_filed(sn):
     ctx.state["draft"] = d
     result = await tools.submit_ticket(ctx)
     assert result["step"] == "choose_device" and not sn.tables["incident"]
+
+
+# --- close codes and hold reason from the profile (R2) -------------------------------------------
+
+
+async def test_cancel_resolve_and_hold_use_the_profiles_choice_values(sn, monkeypatch):
+    ctx = ctx_for()
+    filed = await _file(ctx)
+    await tools.update_ticket(filed["ticket"], ctx, status="On Hold")
+    assert sn.tables["incident"][0]["hold_reason"] == "1"
+    await tools.update_ticket(filed["ticket"], ctx, status="Resolved")
+    assert sn.tables["incident"][0]["close_code"] == "Solution provided"
+    await tools.update_ticket(filed["ticket"], ctx, status="In Progress")
+    monkeypatch.setattr(cards.PROFILE.servicenow.close_codes, "cancel", "Duplicate")
+    await tools.cancel_ticket(filed["ticket"], "found a spare", ctx)
+    assert sn.tables["incident"][0]["close_code"] == "Duplicate"
+
+
+# --- an organization's own ship-to field (R4) -----------------------------------------------------
+
+
+@pytest.fixture
+def ship_field(monkeypatch):
+    monkeypatch.setattr(servicenow, "SHIP_TO_FIELD", "u_ship_to")
+    return "u_ship_to"
+
+
+async def test_the_ship_to_field_is_set_and_changed(sn, ship_field):
+    ctx = ctx_for()
+    filed = await _file(ctx)
+    row = sn.tables["incident"][0]
+    assert row["u_ship_to"] == "1200 Harbor Health Way" and "Ship to: 1200 Harbor Health Way" in row["description"]
+    result = await tools.update_ticket(filed["ticket"], ctx, ship_to=HOME)
+    assert result["changed"] == [{"change": "Ship-to address", "value": HOME}]
+    assert row["u_ship_to"] == HOME and f"Ship to: {HOME}" in row["description"]
+
+
+async def test_a_refused_ship_to_field_is_noted_for_the_desk(sn, ship_field):
+    sn.refuse = {"u_ship_to"}
+    await _file(ctx_for())
+    assert any("u_ship_to" in c for c in sn.tables["incident"][0]["comments_log"])
+
+
+async def test_with_a_field_a_ticket_whose_details_are_in_a_note_still_takes_the_address(sn, ship_field):
+    sn.refuse = {"description"}
+    ctx = ctx_for()
+    filed = await _file(ctx)
+    sn.refuse = set()
+    result = await tools.update_ticket(filed["ticket"], ctx, ship_to=HOME)
+    assert result["changed"] and sn.tables["incident"][0]["u_ship_to"] == HOME
+
+
+def test_the_ship_to_field_cannot_be_one_the_agent_sets(tmp_path):
+    import yaml
+    from app import profile
+    data = yaml.safe_load((profile.DEFAULT_PATH if hasattr(profile, "DEFAULT_PATH") else
+                           __import__("pathlib").Path("config/organization.yaml")).read_text())
+    data["servicenow"]["ship_to_field"] = "description"
+    path = tmp_path / "p.yaml"
+    path.write_text(yaml.safe_dump(data))
+    with pytest.raises(profile.ProfileError, match="set by the agent itself"):
+        profile.load(path)

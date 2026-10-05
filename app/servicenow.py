@@ -18,6 +18,7 @@ location and is supported by a group (Clinical Engineering, Imaging
 Engineering, the IT Service Desk).
 """
 
+import asyncio
 import contextvars
 import datetime
 import hashlib
@@ -53,11 +54,13 @@ _ASSET_FIELDS = ",".join([
     "assigned_to.name", "department", "department.name", "location", "location.name", "support_group",
     "support_group.name", "cost_center.name", "managed_by",
 ])
+# The organization's ship-to field, if it has one (profile servicenow.ship_to_field).
+SHIP_TO_FIELD = PROFILE.servicenow.ship_to_field
 _INCIDENT_FIELDS = ",".join([
     "sys_id", "number", "short_description", "description", "state", "priority", "urgency", "impact",
     "category", "subcategory", "sys_created_on", "sys_updated_on", "assignment_group", "assignment_group.name",
     "assigned_to.name", "cmdb_ci.name", "caller_id", "caller_id.name", "watch_list",
-])
+] + ([SHIP_TO_FIELD] if SHIP_TO_FIELD else []))
 
 # Device kinds, which decide how a problem is fixed:
 #   personal  - assigned to a person: replaced and shipped
@@ -345,6 +348,13 @@ async def search_assets(term: str, limit: int = 20) -> list[dict]:
 _TICKET_NUMBER = re.compile(r"[A-Z]{2,8}\d{4,12}")
 
 
+def correlation_key(value: str | None) -> str:
+    """A correlation id as it may appear in a query: letters, digits, '-', '_' and ':' only. The id is
+    built from the conversation id the client sends; the session store validates it today, but the
+    query must not depend on that."""
+    return "".join(ch for ch in (value or "") if ch.isascii() and (ch.isalnum() or ch in "-_:"))[:100]
+
+
 def _identifier(value: str | None) -> str:
     """An asset tag or serial as it may appear in a query: letters, digits and dashes only, so
     user or photo text can never add query operators (^, ^OR, ^NQ...)."""
@@ -390,6 +400,7 @@ def _incident(rec: dict) -> dict:
         "caller_id": _g(rec, "caller_id"),
         "caller": _g(rec, "caller_id.name"),
         "watch_list": [w for w in str(_g(rec, "watch_list") or "").split(",") if w],
+        "ship_to": _g(rec, SHIP_TO_FIELD) if SHIP_TO_FIELD else "",
         "url": f"{_base()}/nav_to.do?uri=incident.do?sys_id={_g(rec, "sys_id")}",
     }
 
@@ -415,29 +426,70 @@ async def open_incidents_for_ci(ci: str, limit: int = 3) -> list[dict]:
     return [_incident(r) for r in result.get("result", [])]
 
 
-async def follow_incident(user_sys_id: str, sys_id: str, note: str) -> dict:
-    """Adds the user to a ticket's watch list (so it shows up as theirs) and adds
-    their note. Returns the ticket as ServiceNow saved it."""
+# The watch list is one text field: following is read, add, write. Two people following at the same
+# moment could each write a list without the other. So in this process, changes to one ticket's list
+# take turns; each write is read back and retried (a stale write may also be refused by the custom
+# role's follow-only business rule); and one look shortly afterwards repairs a change that a write from
+# another server instance undid.
+WATCH_RECHECK_SECONDS = 1.0
+_WATCH_LOCKS: dict[str, asyncio.Lock] = {}
+
+
+async def _watchers(sys_id: str) -> list[str]:
     current = (await _request("GET", f"/api/now/table/incident/{sys_id}",
-                              params={"sysparm_fields": "watch_list"})).get("result") or {}
-    watchers = [w for w in str(current.get("watch_list") or "").split(",") if w]
-    fields = {"comments": note}
-    if user_sys_id not in watchers:
-        fields["watch_list"] = ",".join(watchers + [user_sys_id])
-    result = await _request("PATCH", f"/api/now/table/incident/{sys_id}", json=fields,
+                              params={"sysparm_fields": "watch_list", "sysparm_exclude_reference_link": "true"})
+               ).get("result") or {}
+    return [w for w in _value(current.get("watch_list")).split(",") if w]
+
+
+async def _set_watching(user_sys_id: str, sys_id: str, watching: bool) -> bool:
+    """Adds or removes only this user; True if ServiceNow ended up as asked."""
+    async def apply() -> bool:
+        for _ in range(3):
+            current = await _watchers(sys_id)
+            if (user_sys_id in current) == watching:
+                return True
+            wanted = current + [user_sys_id] if watching else [w for w in current if w != user_sys_id]
+            try:
+                await _request("PATCH", f"/api/now/table/incident/{sys_id}", json={"watch_list": ",".join(wanted)},
+                               params={"sysparm_fields": "sys_id"})
+            except ServiceNowError as exc:  # e.g. the business rule refused a list that was already stale
+                logger.info("watch list change refused (%s); reading it again", type(exc).__name__)
+        return (user_sys_id in await _watchers(sys_id)) == watching
+
+    lock = _WATCH_LOCKS.setdefault(sys_id, asyncio.Lock())
+    if len(_WATCH_LOCKS) > 2000:
+        for key in [k for k, v in _WATCH_LOCKS.items() if not v.locked()][:1000]:
+            _WATCH_LOCKS.pop(key, None)
+    async with lock:
+        done = await apply()
+    if done and WATCH_RECHECK_SECONDS:
+        await asyncio.sleep(WATCH_RECHECK_SECONDS)
+        async with lock:
+            done = await apply()
+    return done
+
+
+async def _ticket(sys_id: str) -> dict:
+    result = await _request("GET", f"/api/now/table/incident/{sys_id}",
                             params={"sysparm_fields": _INCIDENT_FIELDS, "sysparm_display_value": "false"})
-    return _incident(result["result"])
+    return _incident(result.get("result") or {})
+
+
+async def follow_incident(user_sys_id: str, sys_id: str, note: str) -> dict:
+    """Adds the user to a ticket's watch list (so it shows up as theirs) and adds their note, as two
+    separate writes so a refused watch-list change can't lose the note. Returns the ticket as saved."""
+    await _set_watching(user_sys_id, sys_id, True)
+    if note:
+        await _request("PATCH", f"/api/now/table/incident/{sys_id}", json={"comments": note},
+                       params={"sysparm_fields": "sys_id"})
+    return await _ticket(sys_id)
 
 
 async def unfollow_incident(user_sys_id: str, sys_id: str) -> dict:
-    """Takes the user off a ticket's watch list (only them). Returns the ticket as ServiceNow saved it."""
-    current = (await _request("GET", f"/api/now/table/incident/{sys_id}",
-                              params={"sysparm_fields": "watch_list"})).get("result") or {}
-    watchers = [w for w in str(current.get("watch_list") or "").split(",") if w]
-    result = await _request("PATCH", f"/api/now/table/incident/{sys_id}",
-                            json={"watch_list": ",".join(w for w in watchers if w != user_sys_id)},
-                            params={"sysparm_fields": _INCIDENT_FIELDS, "sysparm_display_value": "false"})
-    return _incident(result["result"])
+    """Takes only this user off a ticket's watch list. Returns the ticket as ServiceNow saved it."""
+    await _set_watching(user_sys_id, sys_id, False)
+    return await _ticket(sys_id)
 
 
 async def create_incident(fields: dict) -> dict:
@@ -462,6 +514,9 @@ async def dropped_fields(sys_id: str, wanted: dict[str, str]) -> dict[str, str]:
 
 async def find_open_by_correlation(user_sys_id: str, correlation_id: str) -> dict | None:
     """A ticket already filed from this conversation, so a retry never duplicates it."""
+    correlation_id = correlation_key(correlation_id)
+    if not correlation_id:
+        return None
     q = f"{_mine(user_sys_id)}^correlation_id={correlation_id}"
     result = await _request("GET", "/api/now/table/incident",
                             params={"sysparm_query": q, "sysparm_fields": _INCIDENT_FIELDS, "sysparm_limit": 1})

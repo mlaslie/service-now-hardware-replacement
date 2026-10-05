@@ -142,6 +142,12 @@ def check_template(template: str, allowed: set[str], where: str) -> None:
             raise ValueError(f"{where}: placeholder {{{name}}} can't have a format (':' or '!')")
 
 
+class CloseCodes(_Strict):
+    """incident.close_code values (your instance's choice list: scripts/sn_profile.py choices close_code)."""
+    resolve: str = Field("Solution provided", min_length=1, description="When the requester marks it resolved")
+    cancel: str = Field("Resolved by caller", min_length=1, description="When the requester cancels it")
+
+
 class ServiceNowSettings(_Strict):
     ticket_category: str = Field("hardware", min_length=1, pattern=r"^[A-Za-z0-9_][A-Za-z0-9_ .\-]*$",
                                  description="incident.category for every ticket (a choice value: no query operators)")
@@ -154,6 +160,20 @@ class ServiceNowSettings(_Strict):
         default_factory=dict, description="Device type or model category -> value for {device_value}")
     urgency_matrix: dict[Urgency, ImpactUrgency] = Field(
         default_factory=_default_matrix, description="Agent urgency -> incident impact and urgency")
+    close_codes: CloseCodes = Field(default_factory=lambda: CloseCodes(),
+                                    description="incident.close_code written when a ticket is resolved or canceled")
+    hold_reason: str = Field("1", min_length=1, description="incident.hold_reason when a ticket is put on hold "
+                             "(out of box: 1 = Awaiting Caller)")
+    ship_to_field: str = Field("", pattern=r"^([a-z][a-z0-9_]*)?$",
+                               description="An incident field for the ship-to address (e.g. u_ship_to). Empty: the "
+                               "address is only the 'Ship to:' line in the description")
+
+    @field_validator("ship_to_field")
+    @classmethod
+    def _ship_field(cls, value: str) -> str:
+        if value in RESERVED_FIELDS:
+            raise ValueError(f"{value} is set by the agent itself; use a field of its own, e.g. u_ship_to")
+        return value
 
     @field_validator("ticket_fields")
     @classmethod

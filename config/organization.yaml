@@ -66,6 +66,12 @@ servicenow:
     keyboard: keyboard
     mouse: mouse
   # The agent's urgency -> incident impact and urgency (ServiceNow derives priority from the pair).
+  # The instance's own choice values for resolving, canceling and holding (scripts/sn_profile.py choices close_code).
+  close_codes:
+    resolve: Solution provided
+    cancel: Resolved by caller
+  hold_reason: "1"           # Awaiting Caller
+  # ship_to_field: u_ship_to  # an incident field for the ship-to address, if the instance has one
   urgency_matrix:
     critical: {impact: "1", urgency: "1"}
     high: {impact: "1", urgency: "2"}

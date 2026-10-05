@@ -67,6 +67,9 @@ Your organization's name (shown in logs and the check summary).
 | `asset_tables` | Tables searched for devices and equipment (default `alm_hardware`). Add a clinical device table if medical equipment lives elsewhere. |
 | `ticket_fields` | Extra incident fields set on every new ticket: fixed text, or placeholders filled per request: `{issue_key}` `{issue_value}` `{issue_label}` `{device_value}` `{device_type}` `{device_kind}` `{model_category}` `{department}` `{location}`. A field that comes out empty is left unset. Fields the agent manages itself (caller, category, description, impact, urgency, CI, watch list, state, correlation) can't be configured. If ServiceNow refuses a field for a user, the ticket gets a note asking the service desk to set it. Default: `contact_type: self-service`. |
 | `device_values` | Device type (`laptop`, `desktop`, `monitor`, `phone`, `tablet`, `medical equipment`...) or model category name -> the value for `{device_value}`. Unlisted types write nothing. |
+| `close_codes` | `resolve` and `cancel`: the `incident.close_code` written when a requester resolves or cancels (defaults "Solution provided", "Resolved by caller"). Use your instance's values: `scripts/sn_profile.py choices close_code` |
+| `hold_reason` | `incident.hold_reason` when a ticket is put on hold (default `1`, Awaiting Caller) |
+| `ship_to_field` | Optional incident field for the ship-to address, e.g. a custom `u_ship_to`. When set, the address is written there too (and changes are checked against it); the description keeps its "Ship to:" line for people. Empty: the line only |
 | `urgency_matrix` | The agent's urgency (`critical`/`high`/`normal`/`low`) -> incident `impact` and `urgency` (`"1"`-`"3"`); ServiceNow derives the priority from the pair. |
 
 ### `devices`

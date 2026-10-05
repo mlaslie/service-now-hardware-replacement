@@ -383,6 +383,8 @@ class World:
             return result
 
         self._set(servicenow, "_request", api)
+        if hasattr(servicenow, "WATCH_RECHECK_SECONDS"):
+            self._set(servicenow, "WATCH_RECHECK_SECONDS", 0)  # no real waiting inside generated examples
         self._set(servicenow, "_http", refusing_http)
         self._set(config, "SN_INSTANCE_URL", FAKE_SN_URL)
         self._set(memory, "recall", recall)

@@ -103,6 +103,20 @@ def check(sn, p: profile_mod.Profile) -> list[Finding]:
             "; ".join(f"{src} -> {v!r} is not a choice" for v, src in bad.items()) + f" (choices: {sorted(valid)})"
             if bad else f"{len(candidates)} value(s), all valid choices")))
 
+    if settings.ship_to_field:
+        exists = bool(sn.query("sys_dictionary", f"nameINincident,task^element={settings.ship_to_field}", "element", 1))
+        out.append(Finding("ok" if exists else "fail", f"ship_to_field {settings.ship_to_field!r} " +
+                           ("exists" if exists else "is not an incident field")))
+
+    for field, values in (("close_code", {"close_codes.resolve": settings.close_codes.resolve,
+                                           "close_codes.cancel": settings.close_codes.cancel}),
+                          ("hold_reason", {"hold_reason": settings.hold_reason})):
+        valid = {c["value"] for c in choices(sn, field)}
+        bad = {k: v for k, v in values.items() if valid and v not in valid}
+        out.append(Finding("fail" if bad else "ok", f"{field}: " + (
+            "; ".join(f"{k} {v!r} is not a choice" for k, v in bad.items()) + f" (choices: {sorted(valid)})"
+            if bad else "values valid")))
+
     for name in ("impact", "urgency"):
         valid = {c["value"] for c in choices(sn, name)}
         used = {getattr(v, name) for v in settings.urgency_matrix.values()}

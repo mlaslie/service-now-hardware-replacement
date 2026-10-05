@@ -171,3 +171,73 @@ def test_category_types_override_the_guess(monkeypatch):
     assert servicenow._device_type("computer", "Dell OptiPlex 7090") == "laptop"
     assert servicenow._device_type("Handheld", "Zebra TC52") == "phone"
     assert servicenow._device_type("Printer", "HP LaserJet") == "other"  # not listed: guessed
+
+
+async def test_a_correlation_id_cannot_add_query_operators(calls):
+    """R1: the id comes from the client's conversation id; it is cleaned before the query."""
+    await servicenow.find_open_by_correlation("me", "sess^NQnumber=INC0000999:ab12")
+    q = calls[-1][2]["params"]["sysparm_query"]
+    assert "^NQ" not in q and q.endswith("^correlation_id=sessNQnumberINC0000999:ab12")
+    calls.clear()
+    assert await servicenow.find_open_by_correlation("me", "^^==") is None and not calls
+
+
+# --- following: two people at once (R3) ------------------------------------------------------
+
+
+class WatchListTicket:
+    """One incident's watch list, with hooks to simulate other writers."""
+
+    def __init__(self, watchers=""):
+        self.watch_list, self.comments, self.patches, self.after_patch, self.refuse = watchers, [], 0, None, 0
+
+    async def __call__(self, method, path, **kw):
+        if method == "GET":
+            return {"result": {"sys_id": "s1", "number": "INC0000001", "state": "2", "watch_list": self.watch_list}}
+        body = kw.get("json") or {}
+        if "watch_list" in body:
+            if self.refuse:
+                self.refuse -= 1
+                raise servicenow.ServiceNowError("aborted by business rule")
+            self.watch_list = body["watch_list"]
+            self.patches += 1
+            if self.after_patch:
+                hook, self.after_patch = self.after_patch, None
+                hook(self)
+        if "comments" in body:
+            self.comments.append(body["comments"])
+        return {"result": {"sys_id": "s1"}}
+
+
+@pytest.fixture
+def ticket(monkeypatch):
+    t = WatchListTicket("a1")
+    monkeypatch.setattr(servicenow, "_request", t)
+    monkeypatch.setattr(servicenow, "WATCH_RECHECK_SECONDS", 0.01)
+    return t
+
+
+async def test_following_survives_a_write_from_another_server(ticket):
+    # Right after our write, another instance writes the list it read before ours: we're dropped.
+    ticket.after_patch = lambda t: setattr(t, "watch_list", "a1,b2")
+    saved = await servicenow.follow_incident("me", "s1", "also broken here")
+    assert "me" in saved["watch_list"] and "b2" in saved["watch_list"]  # re-added by the re-check
+    assert ticket.comments == ["also broken here"]
+
+
+async def test_a_refused_stale_write_is_retried(ticket):
+    ticket.refuse = 1  # the follow-only business rule refused a list that was already out of date
+    saved = await servicenow.follow_incident("me", "s1", "note")
+    assert "me" in saved["watch_list"] and ticket.comments == ["note"]
+
+
+async def test_two_people_following_at_once_both_stay(ticket):
+    import asyncio
+    await asyncio.gather(servicenow.follow_incident("u1", "s1", "one"), servicenow.follow_incident("u2", "s1", "two"))
+    assert set(ticket.watch_list.split(",")) == {"a1", "u1", "u2"}
+
+
+async def test_unfollowing_removes_only_the_user(ticket):
+    ticket.watch_list = "a1,me,b2"
+    saved = await servicenow.unfollow_incident("me", "s1")
+    assert saved["watch_list"] == ["a1", "b2"]

@@ -110,10 +110,12 @@ def _state_change(target: str, reason: str) -> dict | None:
     if not code:
         return None
     fields = {"state": code}
+    settings = PROFILE.servicenow  # the instance's own choice values (config/organization.yaml)
     if code in ("6", "7", "8"):  # resolving/closing/canceling needs a close code and notes
-        fields.update({"close_code": "Solved Remotely (Permanently)", "close_notes": reason or "Requested by the user"})
+        close_code = settings.close_codes.cancel if code == "8" else settings.close_codes.resolve
+        fields.update({"close_code": close_code, "close_notes": reason or "Requested by the user"})
     if code == "3":
-        fields["hold_reason"] = "1"  # awaiting caller
+        fields["hold_reason"] = settings.hold_reason
     return _change("Status", servicenow.STATE_LABELS[code], fields, lambda t, c=code: t["state_code"] == c)
 
 
@@ -255,18 +257,29 @@ async def update_ticket(number: str, tool_context: ToolContext, note: str = "", 
     if ship_to:
         address = " ".join(ship_to.split())
 
+        field = servicenow.SHIP_TO_FIELD  # the organization's ship-to field, if any
+
         def ship_fields(ticket, a=address):
             new = replace_ship_to(ticket["description"], a)
-            return {"description": new} if new else {}
+            out = {"description": new} if new else {}
+            if field:
+                out[field] = a
+            return out
+
+        def shipped_to(ticket, a=address) -> bool:
+            if field:
+                return ticket.get("ship_to") == a
+            return f"Ship to: {a}" in ticket["description"]
 
         def no_ship_line(ticket):
-            if "Ship to:" in (ticket.get("description") or ""):
+            if "Ship to:" in (ticket.get("description") or "") or (field and ticket.get("ship_to")):
                 return ""
+            if field and not (ticket.get("description") or "").strip():
+                return ""  # details went to a note, but the field takes the address
             if not (ticket.get("description") or "").strip():
                 return "the ticket's details are in its notes, so the service desk will update the address"
             return "this ticket has no shipping address (equipment is repaired on site)"
-        change = _change("Ship-to address", address, ship_fields,
-                         lambda t, a=address: f"Ship to: {a}" in t["description"])
+        change = _change("Ship-to address", address, ship_fields, shipped_to)
         change["precheck"] = no_ship_line
         change["policy"] = "ship_to"
         changes.append(change)

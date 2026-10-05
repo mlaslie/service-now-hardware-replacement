@@ -50,7 +50,8 @@ async def submit_ticket(tool_context: ToolContext) -> dict:
     session_id = tool_context.session.id if tool_context.session else ""
     # One per request, not per conversation: a retried turn (e.g. the reply
     # failed after filing) must not file twice, but a second request must file.
-    conversation_id = f"{session_id}:{draft['id']}" if session_id else ""
+    # Cleaned here too, so the id stored on the ticket is the one the duplicate check queries.
+    conversation_id = servicenow.correlation_key(f"{session_id}:{draft['id']}") if session_id else ""
     async with _filing_lock(conversation_id):
         return await _file_once(tool_context, employee, draft, conversation_id)
 
@@ -88,6 +89,11 @@ async def _file_once(tool_context: ToolContext, employee: dict, draft: dict, con
         # The organization's extra fields first (config/organization.yaml servicenow.ticket_fields);
         # what the agent sets itself below always wins.
         configured = _configured_fields(draft)
+        if servicenow.SHIP_TO_FIELD and not cards.is_equipment(device):
+            # The organization's own ship-to field (read back like the other configured fields).
+            configured[servicenow.SHIP_TO_FIELD] = " ".join(str(
+                draft.get("delivery_location") or employee.get("location_address") or employee.get("location") or ""
+            ).split())
         fields = {
             **configured,
             "caller_id": employee["sys_id"],
