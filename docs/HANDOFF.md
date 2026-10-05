@@ -2,7 +2,7 @@
 
 Background for anyone (or any Claude session) picking this project up. It records what was
 built, where everything lives, what went wrong and how it was fixed, and what's still open.
-Last updated 2026-10-05. `main` at `0751e01` or later (all pushed); live Cloud Run revision `00033` (deployed 2026-10-05 from `f730e3b`: R1-R4; smoke test passed).
+Last updated 2026-10-05. `main` at `4c66049` or later (all pushed; the GitHub repo is **public**); live Cloud Run revision `00033` (deployed 2026-10-05 from `f730e3b`: R1-R4; smoke test passed).
 
 **No secret values are in this file.** Secrets are named with where they live.
 
@@ -226,6 +226,13 @@ uv run --group seed pytest                      # everything: 48 tests
 | 23 | Seed summary said "0 pieces of equipment" | An edit dropped the line recording equipment in the manifest | Restored, and `set` re-records seed-marked equipment it finds; test added |
 | 24 | Creating an ACL through the API → 403 | Only a session elevated to `security_admin` may create ACLs | `u_hardware_requester` is a background script the admin runs once (`scripts/servicenow/`); not bypassed |
 | 25 | Evals: the model sometimes stopped at "Is this the right device?" and dropped a problem the user had already described | The confirm card read as the end of the turn | `_next_step` result says to call set_issue in the same turn; instruction rule; 9/9 on rerun |
+| 26 | Personal data (names, emails, instance, project and engine IDs, local paths) in committed docs and in git history | Docs and early demo pages were written with real values | Real values moved to uncommitted `CLAUDE.local.md` / `docs/HANDOFF.local.md`; placeholders committed; `tests/test_no_pii.py` checks every tracked file against the local `.pii-patterns`; history rewritten (git-filter-repo) and force-pushed before the repo went public |
+| 27 | Cancels and resolves wrote close code "Solved Remotely (Permanently)" | Hard-coded out-of-box value; it isn't a choice on this instance, and ServiceNow accepted it as free text | `servicenow.close_codes` / `hold_reason` in the profile, checked by `sn_profile.py check` (R2) |
+| 28 | Two people following one ticket at once could drop one | The watch list is read, add, write | Per-ticket turns in a server, read back and retry, re-check a second later; the note is a separate write (R3); cross-server fuzz test |
+| 29 | `sn_doctor` reported "Follow someone else's ticket" failing for the custom role | The checker wrote "admin + user" as the list; the follow-only business rule rightly refused it | The checker appends like the agent does; the "remove other followers" check sets up a follower first |
+| 30 | The published fuzz report had no "Findings and fixes" section | An unquoted colon in `fuzz/findings.yaml`; the report builder hid the parse error | Quoted; the section now shows a broken file as an error; `tests/test_fuzz_findings.py` |
+| 31 | A `git add -A` committed an agent worktree as a gitlink | A background agent's worktree lived under `.claude/worktrees/` | Removed; `.claude/worktrees/` ignored; stage explicit paths while agents run |
+| 32 | `from mcp.server.fastmcp import FastMCP` failed in the new MCP repo | MCP Python SDK 2.x renamed FastMCP to MCPServer | Pinned `mcp>=1.20,<2` for the probe (Gemini Enterprise docs predate 2.x) |
 
 ---
 
@@ -272,26 +279,45 @@ uv run --group seed pytest                      # everything: 48 tests
   with a failing test (fixed in the next commit).
 - **Permission classifier:** deleting secrets or DBs, IAM grants and new deploys need the user to
   name the specific resource or action.
+- **Keep personal data out of the repo from the first commit.** Real values belong in uncommitted
+  `*.local.md` files and `.env`; a test that checks tracked files against local patterns keeps them out.
+  Removing them later meant rewriting history.
+- **Ask the instance, don't assume out-of-box values.** `sn_profile.py choices <field>` showed the close code the
+  agent had been writing didn't exist there; ServiceNow accepted it silently.
+- **A checker must do what the real code does.** `sn_doctor` failed the custom role because it wrote the follower
+  list differently from the agent.
+- **Never hide an error in a report or a check.** The fuzz report silently dropped a section for two days.
+- **Prove a test can fail.** Turning the follow re-check off made the race test fail 34 of 200 times; with it, 0.
 
 ---
 
 ## 7. Open items / next steps
 
-The prioritized backlog is `docs/BACKLOG.md` (section G = adoption kit, F = hospital follow-ups, D = ideas).
+The prioritized backlog is `docs/BACKLOG.md` (its status section lists the open features). Done since the last
+handoff: review sections H and J (R1-R4), fuzzing (sections I and round 2), docs set, feature switches, wording
+file, personal data removed and the repo made public, custom role re-applied and measured (19 of 19).
 
-1. **Manual testing in Gemini Enterprise** by the user (web + mobile; Jane = custom role, John = itil), with the
-   personal run sheet `demo/DEMO.local.html` (`uv run python demo/build_demo.py`).
-2. **Needs a decision or a live system** (from `docs/BACKLOG.md`): personal identifiers in tracked docs and git
-   history (H2: keep, move to an untracked file, or rewrite history); re-run the custom role script in ServiceNow
-   for the follower rule (H0.6); F1 live pass; production access (F2/D4/D5: scripted REST API or Service Catalog
-   item); take out of service (F3, asset write); vendor contract on the card (F4, which fields); auto-submit (D2)
-   and loaner toggle (D3) are product choices; G2.5 registration through the API and the theme `iconUrl` (G3.2)
-   need a Gemini Enterprise check; G5 ideas.
-3. **Cleanup** (needs explicit user naming): secrets `servicenow-integration`, `servicenow-oauth`; Firestore DB
+1. **Manual testing in Gemini Enterprise** (web and mobile; Jane = custom role, John = itil) with the personal
+   run sheet `demo/DEMO.local.html` (`uv run python demo/build_demo.py`).
+2. **MCP server + skill evaluation** in `~/ADK/servicenow-mcp` (its `docs/PLAN.md`, `RESEARCH.md`, `PROBE.md`).
+   Phase 0 is built: the probe server `servicenow-mcp-probe` runs on Cloud Run (private, scales to zero) and the
+   test skill is `skills/servicenow-probe.zip`. Waiting on the user: register the probe as a Custom MCP Server data
+   store in the Gemini Enterprise app (same ServiceNow OAuth client), enable skills, upload the skill, run the
+   steps in `PROBE.md`, then ask Claude to "read the probe logs". Decided: same app, reuse the OAuth client, no
+   saved addresses; keep-or-retire decided after the pilot.
+3. **R5:** move the business rules out of ADK session code into plain functions, as phase 1 of the MCP work.
+4. **Needs a decision or a live system:** production access (F2/D4/D5: Service Catalog item or scripted REST API
+   instead of a role, with the customer's ServiceNow team: licensing); take out of service (F3, asset write);
+   vendor contract on the card (F4, which fields); auto-submit (D2) and loaner toggle (D3); clinical CI class (F6);
+   agent icon / theme fields in Gemini Enterprise (G3.2); G5 ideas. Optional: a `u_ship_to` field (R4) and
+   `./ops/observability.sh --apply`.
+5. **Cleanup** (needs explicit user naming): secrets `servicenow-integration`, `servicenow-oauth`; Firestore DB
    `hardware-tickets`; ServiceNow clients "Hardware Replacement Agent" and "…Agent 2"; GE `a2a_probe` and
-   `~/ADK/a2a-runtime-probe`. Keep `a2ui-v09-probe` (user's request).
-4. **Production hardening:** decide `u_hardware_requester` vs a scripted REST API / Service Catalog item with the
-   customer's ServiceNow team (licensing); SSO between Google and ServiceNow.
+   `~/ADK/a2a-runtime-probe`; after phase 0, the `servicenow-mcp-probe` service and its data store and skill.
+   Keep `a2ui-v09-probe` (user's request). Ask GitHub Support to garbage-collect the repo so commits from before
+   the history rewrite stop resolving.
+6. **Security note (outside this project):** the older local project `~/ADK/service_now_agent` has an admin
+   password as a default in its code; rotate that account's password if the instance is still in use.
 
 ---
 
@@ -300,3 +326,5 @@ The prioritized backlog is `docs/BACKLOG.md` (section G = adoption kit, F = hosp
   `references/lessons-learned.md` has the measured GE/A2A facts this project relies on.
 - `~/ADK/adk-a2a-agent-runtime-template`: the A2A-on-Agent-Runtime template the probe was built from.
 - `demo/DEMO.html`: the 5-minute demo script.
+- `~/ADK/servicenow-mcp`: the MCP server + Gemini Enterprise skill evaluation (plan, research, phase 0 probe).
+- Fuzzing: `fuzz/README.md`; the HTML report is built at `fuzz/report/index.html`; findings in `fuzz/findings.yaml`.
