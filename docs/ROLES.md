@@ -82,9 +82,11 @@ only`, before update on `incident`) checks watch list changes on other people's 
 without `itil` may add or remove only themselves, never anyone else. The create script installs it and
 `sn_custom_role.py status` checks it.
 
-**Measured** (2026-10-01, `sn_doctor.py --matrix --persona none --persona u_hardware_requester --persona itil`,
-temporary users, everything deleted afterwards): **`u_hardware_requester` passes all 16 checks, the same as
-`itil`**, where a user with no roles fails 8.
+**Measured** (2026-10-05, `sn_doctor.py --matrix --persona none --persona u_hardware_requester --persona itil`,
+temporary users, everything deleted afterwards): **`u_hardware_requester` passes all 19 checks**: everything the
+agent does, and all three Limit checks (it can't edit someone else's ticket, remove other followers, or read
+non-hardware tickets). `itil` does everything too but passes none of the Limit checks (expected for a fulfiller
+role). A user with no roles fails 8 checks.
 
 | What the agent does | no roles | `u_hardware_requester` | `itil` |
 |---|---|---|---|

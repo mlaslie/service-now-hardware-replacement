@@ -201,6 +201,9 @@ class Doctor:
             self.admin.http.patch(f"/api/now/table/incident/{other}", json={
                 k: _val(before.get(k)) for k in ("short_description", "caller_id")})
 
+        # Someone else follows the ticket (set up as admin); the user tries to replace the list with only
+        # themselves. The other follower must stay.
+        self.admin.http.patch(f"/api/now/table/incident/{other}", json={"watch_list": f"{admin_id},{user['sys_id']}"})
         s.patch(f"/api/now/table/incident/{other}", json={"watch_list": user["sys_id"]})
         got = self.admin.get(f"/api/now/table/incident/{other}", sysparm_fields="watch_list",
                              sysparm_exclude_reference_link="true")
@@ -366,8 +369,12 @@ class Doctor:
         if c.status == "fail":
             c.hint = "incident read ACL (itil or sn_incident_read). Without it every reporter files a new ticket."
 
-        r = s.patch(f"/api/now/table/incident/{other['sys_id']}", json={"watch_list": f"{admin_id},{user['sys_id']}",
-                                                                       "comments": f"{MARK} also affected"})
+        # As the agent does (servicenow.follow_incident): the current followers plus this user.
+        current = self.admin.get(f"/api/now/table/incident/{other['sys_id']}", sysparm_fields="watch_list",
+                                 sysparm_exclude_reference_link="true")
+        followers = [w for w in _val(current.get("watch_list")).split(",") if w]
+        r = s.patch(f"/api/now/table/incident/{other['sys_id']}", json={
+            "watch_list": ",".join(followers + [user["sys_id"]]), "comments": f"{MARK} also affected"})
         got = self.admin.get(f"/api/now/table/incident/{other['sys_id']}", sysparm_fields="watch_list",
                              sysparm_exclude_reference_link="true")
         c = rep.add("Follow someone else's ticket", "joining an open ticket on shared equipment")
@@ -418,8 +425,10 @@ def _equip_temp_user(admin: Admin, doctor: Doctor, user: dict, roles: list[str],
 
 
 def drop_user(admin: Admin, user: dict) -> None:
-    for table in ("sys_user_grmember", "sys_user_has_role"):
-        for row in admin.query(table, f"user={user['sys_id']}"):
+    # Inherited role grants (roles contained in another role) can't be deleted directly; they go
+    # with the grant they came from, and deleting the user removes anything left.
+    for table, extra in (("sys_user_grmember", ""), ("sys_user_has_role", "^inherited=false")):
+        for row in admin.query(table, f"user={user['sys_id']}{extra}"):
             admin.delete(table, row["sys_id"])
     for row in admin.query("alm_hardware", f"assigned_to={user['sys_id']}"):
         admin.delete("alm_hardware", row["sys_id"])
