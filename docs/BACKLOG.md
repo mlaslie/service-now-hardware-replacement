@@ -4,12 +4,14 @@ Created 2026-09-26. The agent works end to end; this is the next round of work.
 Priority: **P0** = bug or blocks the next manual test, **P1** = next up, **P2** = later.
 Size: S (< half a day), M (about a day), L (several days).
 
-Status 2026-10-01. **Done:** A0, A1, A2 (evals), A3, B, E (mobile text mode), F (hospital equipment), G1.1,
-G1.3, G2.1-G2.3, G2.6-G2.8, G3.1, G3.5, most of G3.7, A2UI v0.9 + green buttons, verbatim saved addresses,
-custom role `u_hardware_requester` (created and measured: passes everything `itil` does), README/HTML overview,
-generic configurable demo users.
-**Next:** H0 (review fixes, below), then G3.3 (wording in `messages.yaml`), G1.2 (split `tools.py`), G3.12 (customization recipes), F1 (live
-pass), rest of G3.7 (ticket table / catalog item), then D ideas. Section C is folded into G2.
+Status 2026-10-05. **Done:** sections A, B, E, H (review fixes), I (fuzzing); most of D, F and G (see each item).
+**Open features** (each needs a product or ServiceNow decision, or a live system):
+- Production ServiceNow access: Service Catalog item or scripted REST API instead of a role (D4, D5, F2, rest of G3.7)
+- Auto-submit (D2), loaner toggle (D3, G5.3), returns and logistics (D7)
+- Hospital: take equipment out of service (F3), vendor contract on the card (F4), clinical CI class check (F6)
+- Live test pass on phone and desktop (F1); agent icon / theme fields in Gemini Enterprise (G3.2)
+- Ideas to pick from: G5 (languages, approvals, delivery rules, assignment, other ticket systems, multiple
+  organizations, branding)
 ---
 
 ## H. Code review findings (2026-10-02)
@@ -73,7 +75,8 @@ Truncation: ticket list says when there are more; group memberships read up to 5
 - [x] Container runs as root (add `USER`).
 - [x] `sn_doctor`: temp user created outside `try`; cleanup deletes unchecked; end impersonation explicitly.
 - [x] `sn_seed` token cache briefly world-readable; `chat.py` takes tokens as CLI args.
-- [ ] **Needs your decision.** Personal identifiers in tracked docs (`HANDOFF.md`, `BACKLOG.md`, `CLAUDE.md`, one screenshot) and in
+- [x] **Done 2026-10-05:** personal data moved to uncommitted `*.local.md` files, guarded by `tests/test_no_pii.py`,
+  and removed from git history before the repo went public. Was: personal identifiers in tracked docs (`HANDOFF.md`, `BACKLOG.md`, `CLAUDE.md`, one screenshot) and in
   git history of `demo/DEMO.html` (needs a history rewrite to remove; repo is private).
 
 ### H3. Test gaps (P1): **done 2026-10-03** (`tests/test_server.py`, `tests/test_memory.py`, sn_doctor Limit checks; seed reset covered in H1.9)
