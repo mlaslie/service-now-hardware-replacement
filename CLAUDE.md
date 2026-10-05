@@ -9,7 +9,7 @@ steps, problems already solved, lessons learned and open items.
 - GCP project is **`PROJECT_ID`** (not the gcloud default). gcloud lives at
   `~/google-cloud-sdk/bin/gcloud`.
 - Commits: repo-local identity is set; **no Claude/Anthropic co-author trailers or footers**.
-- Push: `git push` to `origin` (private repo `OWNER/service-now-hardware-replacement`), only when asked.
+- Push: `git push` to `origin` (public repo `OWNER/service-now-hardware-replacement`: never commit personal data), only when asked.
 - Unit tests: `uv run --group seed pytest` (check the exit code before committing; don't pipe it through `tail` in a commit chain). Model-routing evals: `uv run python evals/run.py`.
 - ServiceNow admin tools (sign in with `seed/sn_seed.py login`): `scripts/sn_doctor.py` (permission checker), `scripts/sn_profile.py` (profile vs. instance), `scripts/sn_custom_role.py`.
 - Run scripts from the repo root.

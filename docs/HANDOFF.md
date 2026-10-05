@@ -48,7 +48,7 @@ buttons; mobile: numbered text after a "Desktop or Mobile App?" question) for `j
 | Item | Value |
 |---|---|
 | Local path | `~/ADK/hardware_replacement` |
-| GitHub | https://github.com/OWNER/service-now-hardware-replacement (**private**), branch `main` |
+| GitHub | https://github.com/OWNER/service-now-hardware-replacement (**public** since 2026-10-05; history rewritten to remove personal data), branch `main` |
 | Push | `git push` from the repo (remote `origin` is set; `gh` CLI is logged in as `OWNER`) |
 | Commit identity | Repo-local config: `John Doe <23639657+OWNER@users.noreply.github.com>`. There's no global git identity on this Mac, so keep committing from this repo, or set it again with `git config user.name` / `user.email`. |
 | Attribution | **No Claude / Anthropic co-author trailers or "Generated with" footers**, per the user's global `~/.claude/CLAUDE.md`. |
