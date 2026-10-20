@@ -120,6 +120,7 @@ world production environment.
 |---|---|
 | **`docs/site/index.html`** | Everything below as one navigable page: fill in your values once, copy every command |
 | [docs/INSTALL.md](docs/INSTALL.md) | Install from scratch, step by step |
+| [docs/REBUILD_INSTANCE.md](docs/REBUILD_INSTANCE.md) | Move to a new or rebuilt ServiceNow instance: one paste, two commands |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it works: diagrams and a module map |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | `.env` settings and the organization profile (`config/organization.yaml`) |
 | [docs/CUSTOMIZE.md](docs/CUSTOMIZE.md) | Recipes: colour, problems, ticket fields, feature switches, wording |

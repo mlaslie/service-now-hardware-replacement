@@ -6,6 +6,15 @@ the Cloud Run revisions of the reference deployment, given for orientation only.
 Each entry has an **Action needed** line for operators who already run the agent. After any
 update: `uv run python -m app.profile`, then `./scripts/deploy.sh`.
 
+## 2026-10-20
+
+**Rebuild on a new ServiceNow instance** (`scripts/rebuild_instance.py`, `docs/REBUILD_INSTANCE.md`)
+- One background script (`bootstrap`: the requester role and the admin tools' OAuth client), then `run` does the
+  rest: settings, secret, seed, demo passwords, checks, deploy, and the Gemini Enterprise client, authorization and
+  agent through the APIs. `run --only gemini` also rotates the Gemini Enterprise client secret.
+- `sn_doctor.py` now exits non-zero when a check fails.
+- Action needed: add `GE_APP_ID` to `.env` to use the `gemini` step.
+
 ## 2026-10-05
 
 **Review fixes R1-R4** (`f730e3b`, revision 00033)

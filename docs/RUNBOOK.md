@@ -13,7 +13,14 @@ The agent itself holds no ServiceNow secret. The client secret lives in two plac
 | **Gemini Enterprise**: the agent's authorization (client ID, client secret, authorization URL, token URL) | Signing users in and refreshing their tokens |
 | **Secret Manager** `servicenow-seed-oauth` (`INSTANCE\|CLIENT_ID\|CLIENT_SECRET`), only if you use the seed / doctor / profile scripts | The admin scripts' own client (a separate client) |
 
-Steps for the Gemini Enterprise client:
+Steps for the Gemini Enterprise client. The quick way does all of them through the APIs (a new random secret
+in ServiceNow, a new Gemini Enterprise authorization, the agent pointed at it), without showing the secret:
+
+```bash
+uv run --group seed python scripts/rebuild_instance.py run https://INSTANCE.service-now.com --only gemini
+```
+
+By hand:
 
 1. In ServiceNow: **System OAuth > Application Registry**, open the client, set a new client
    secret, save.
@@ -55,7 +62,10 @@ Personal developer instances sleep when idle, and are reclaimed if unused for a 
 - **Symptom:** the agent says "ServiceNow is waking up".
 - **Fix:** open `https://INSTANCE.service-now.com` in a browser and wait until it loads (or wake
   it from the developer portal). Then try again.
-- **Before a demo:** open the instance 10 minutes ahead. Log in regularly so it isn't reclaimed.
+- **Before a demo:** open the instance 10 minutes ahead.
+- **Reclamation:** a developer instance at least 90 days old with no explicit sign-in to the instance for 10 days
+  is reclaimed; API traffic (the agent's included) doesn't count. Sign in weekly. If it's reclaimed anyway, see
+  [REBUILD_INSTANCE.md](REBUILD_INSTANCE.md).
 - Production instances don't hibernate.
 
 ## User says "wrong person"

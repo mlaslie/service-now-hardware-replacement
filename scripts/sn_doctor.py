@@ -520,6 +520,7 @@ def main() -> None:
                                          for n, r in results], indent=1))
     failed = sum(c.status == "fail" for _, r in results for c in r.checks)
     print(f"\n{failed} check(s) failed." if failed else "\nAll checks passed.")
+    sys.exit(1 if failed else 0)
 
 
 if __name__ == "__main__":

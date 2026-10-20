@@ -192,6 +192,9 @@ uv run --group seed pytest                      # everything: 48 tests
 - Local A2A client: `CHAT_ID_TOKEN="$(gcloud auth print-identity-token)" CHAT_USER_TOKEN=<SN token> uv run python scripts/chat.py --url <service URL>`.
   Without a user token the agent answers as anonymous, which is expected.
 - Seed tool (see README): `uv run --group seed python seed/sn_seed.py login | set <users.json> | report | clear-tickets [--yes] | reset [--user X] [--yes] [--memory]`.
+- New or reclaimed ServiceNow instance: `scripts/rebuild_instance.py bootstrap <url>` (one background script), then
+  `run <url>` ([docs/REBUILD_INSTANCE.md](REBUILD_INSTANCE.md)). `run <url> --only gemini` rotates the Gemini Enterprise
+  client secret through the APIs (no console form, no autofill). Demo passwords: `~/.config/hw-seed/demo-passwords.json`.
   `set` also creates the hospital equipment in `seed/equipment.json`. Between demo runs use `clear-tickets --yes`.
   Run it from the repo root (running it from `~` fails).
 

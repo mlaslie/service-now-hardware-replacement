@@ -164,6 +164,11 @@ uv run --group seed python seed/sn_seed.py report
 ```
 See the README's demo data section and `demo/DEMO.html`.
 
+## Moving to another ServiceNow instance
+
+A new or rebuilt instance (for example a reclaimed developer instance): [REBUILD_INSTANCE.md](REBUILD_INSTANCE.md)
+automates steps 2, 5 and 7 to 10.
+
 ## If something goes wrong
 
 | Symptom | Fix |

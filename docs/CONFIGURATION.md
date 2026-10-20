@@ -31,6 +31,9 @@ uv run python -m app.profile            # validates config/organization.yaml and
 | `MESSAGES_FILE` | | `config/messages.yaml` | Which wording file to load (under `config/`) |
 | `VISION_MODEL` | | `MODEL` | Model for reading photos only |
 | `SERVICE_URL` | | set by `deploy.sh` | Public URL advertised in the agent card |
+| `GE_APP_ID` | for `rebuild_instance.py` | | Gemini Enterprise app ID the agent is registered in (not passed to Cloud Run) |
+| `GE_LOCATION` | | `global` | That app's location |
+| `GE_AGENT_NAME` | | the agent card's name | The registered agent's display name |
 
 `.env` is read by the agent when run locally and by every script. It is never committed and never
 copied into the container; `scripts/deploy.sh` passes the values to Cloud Run.
