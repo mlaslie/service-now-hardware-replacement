@@ -209,7 +209,7 @@
         <div class="body"><p class="label">Clear old demo tickets (keeps users and equipment)</p>
           <div class="phrase"><code>cd ~/ADK/hardware_replacement &amp;&amp; uv run --group seed python seed/sn_seed.py clear-tickets --yes</code><button type="button">Copy</button></div>
           <p class="expect">If the users or equipment were reset, seed them again first:</p>
-          <div class="phrase"><code>cd ~/ADK/hardware_replacement &amp;&amp; uv run --group seed python seed/sn_seed.py set seed/users.example.json</code><button type="button">Copy</button></div>
+          <div class="phrase"><code>cd ~/ADK/hardware_replacement &amp;&amp; uv run --group seed python seed/sn_seed.py set {{USERS_FILE}}</code><button type="button">Copy</button></div>
         </div></li>
       <li class="step" data-id="prep-report"><input type="checkbox" id="c-prep-report" aria-label="Done: asset register">
         <div class="body"><p class="label">Optional handout: the asset register PDF</p>

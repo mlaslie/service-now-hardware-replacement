@@ -34,7 +34,7 @@ def demo_users(users: list[dict]) -> dict[str, dict]:
 
 def render(users_file: Path, instance: str, repo: str) -> str:
     users = demo_users(json.loads(users_file.read_text()))
-    values = {"INSTANCE": instance.rstrip("/"), "REPO": repo}
+    values = {"INSTANCE": instance.rstrip("/"), "REPO": repo, "USERS_FILE": f"seed/{users_file.name}"}
     for prefix, role in (("C", "clinician"), ("I", "it")):
         u = users[role]
         values |= {f"{prefix}_FIRST": u["first_name"], f"{prefix}_NAME": f"{u['first_name']} {u['last_name']}",
